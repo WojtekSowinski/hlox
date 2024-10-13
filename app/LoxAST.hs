@@ -5,8 +5,9 @@ data Literal
   | LitNumber Double
   | LitBoolean Bool
   | Nil
+  deriving Show
 
-data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
+data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ deriving Show
 
 type Identifier = String
 
@@ -19,6 +20,7 @@ data Expression
   | And {leftOperand :: Expression, rightOperand :: Expression}
   | Or {leftOperand :: Expression, rightOperand :: Expression}
   | FunctionCall {function :: Expression, args :: [Expression]}
+  deriving Show
 
 data Statement
   = Eval Expression
@@ -32,5 +34,6 @@ data Statement
   | For {init :: Statement, condition :: Expression, increment :: Statement, body :: Block}
   | FunctionDef {name :: Identifier, params :: [Identifier], body :: Block}
   | Return Expression
+  deriving Show
 
-newtype Block = Block [Statement]
+newtype Block = Block [Statement] deriving Show

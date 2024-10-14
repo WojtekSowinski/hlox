@@ -3,7 +3,7 @@
 module LoxParser where
 
 import Control.Applicative (Alternative (many, some), (<|>))
-import Control.Monad (mfilter)
+import Control.Monad (guard, mfilter)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust)
@@ -27,7 +27,29 @@ pIdentifier :: Parser Identifier
 pIdentifier = do
   firstChar <- letter
   theRest <- many $ letter <|> digit
-  return $ firstChar : theRest
+  let name = firstChar : theRest
+  guard (name `notElem` reservedKeywords)
+  return name
+
+reservedKeywords :: [String]
+reservedKeywords =
+  [ "and",
+    "class",
+    "else",
+    "false",
+    "for",
+    "fun",
+    "if",
+    "nil",
+    "or",
+    "print",
+    "return",
+    "super",
+    "this",
+    "true",
+    "var",
+    "while"
+  ]
 
 pBool :: Parser Bool
 pBool = (match "true" >> return True) <|> (match "false" >> return False)
@@ -41,8 +63,8 @@ pNumber = do
 pString :: Parser String
 pString = do
   mchar '"'
-  str <- consumeWhile (/= '\"')
-  mchar '\"' <|> panic "Unterminated string"
+  str <- consumeWhile (/= '"')
+  mchar '"' <|> panic "Unterminated string"
   return str
 
 pLiteral :: Parser Literal
@@ -97,9 +119,9 @@ pExpression = whitespace *> equality <* whitespace
       return $ foldl' (\l (op, r) -> BinOperation l op r) firstFactor factors
 
     unaryExp =
-        mchar '!' *> (Not <$> unaryExp)
+      mchar '!' *> (Not <$> unaryExp)
         <|> mchar '-' *> (Negative <$> unaryExp)
-        <|>primaryExp
+        <|> primaryExp
 
     primaryExp =
       whitespace

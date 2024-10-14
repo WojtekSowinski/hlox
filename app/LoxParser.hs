@@ -2,8 +2,8 @@
 
 module LoxParser where
 
-import Control.Applicative (Alternative (many, some), (<|>))
-import Control.Monad (guard, mfilter)
+import Control.Applicative (Alternative (many, some), optional, (<|>))
+import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust)
@@ -131,3 +131,15 @@ pExpression = whitespace *> equality <* whitespace
                <|> panic "Expected expression"
            )
         <* whitespace
+
+synchronize :: ParseError -> Parser Statement
+synchronize err = do
+  ln <- getLineNr
+  findNext $ void (mchar ';') <|> startOfStatement <|> eof
+  optional $ mchar ';'
+  return $ HadError ln err
+
+startOfStatement :: Parser ()
+startOfStatement = do
+  word <- consumeWhile isAlpha
+  guard (word `elem` ["class", "for", "fun", "if", "print", "return", "var", "while"])

@@ -6,10 +6,12 @@ import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, fromMaybe)
 import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
+import Control.Monad.Trans.Except (throwE)
+import Exec (loxThrow)
 
 parseTest :: String -> ParseOutput Expression
 parseTest input = snd $ runParser pExpression (input, 1)
@@ -67,8 +69,8 @@ pString = do
   mchar '"' <|> panic "Unterminated string"
   return str
 
-pLiteral :: Parser Value
-pLiteral =
+pValue :: Parser Value
+pValue =
   LitBoolean <$> pBool
     <|> LitNumber <$> pNumber
     <|> LitString <$> pString
@@ -92,8 +94,17 @@ pOperator :: [String] -> Parser BinOp
 pOperator ops = fromJust . flip lookup operatorDict <$> choice (map match ops)
 
 pExpression :: Parser Expression
-pExpression = whitespace *> equality <* whitespace
+pExpression = whitespace *> assignment <* whitespace
   where
+    assignment = do
+      target <- equality
+      value <- optional (mchar '=' *> assignment)
+      case value of
+        Nothing -> return target
+        Just ex -> if isValidLValue target
+            then return $ Assign target ex
+            else panic "Invalid assignment target."
+      
     equality = do
       firstComparand <- comparisonExp
       let comparand = (,) <$> pOperator ["==", "!="] <*> comparisonExp
@@ -125,19 +136,19 @@ pExpression = whitespace *> equality <* whitespace
 
     primaryExp =
       whitespace
-        *> ( LitExpr <$> pLiteral
-               -- <|> Variable <$> pIdentifier
-               <|> (mchar '(' *> pExpression <* (mchar ')' <|> panic "Mismatched Brackets"))
-               <|> panic "Expected expression"
+        *> ( Literal <$> pValue
+               <|> Variable <$> pIdentifier
+               <|> (mchar '(' *> pExpression <* (mchar ')' <|> panic "Mismatched Brackets."))
            )
         <* whitespace
 
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
+  consumeChar
   ln <- getLineNr
   findNext $ void (mchar ';') <|> startOfStatement <|> eof
   optional $ mchar ';'
-  return $ HadError ln $ "Parse error. " ++ err
+  return $ CouldNotParse ln err
 
 startOfStatement :: Parser ()
 startOfStatement = do
@@ -146,6 +157,39 @@ startOfStatement = do
 
 pStatement :: Parser Statement
 pStatement =
-  Print
-    <$> pExpression
-      <-!!!-> synchronize
+  (pDeclaration <|> pCommand <|> panic "Invalid syntax.")
+    <-!!!-> synchronize
+
+varDecl :: Parser Statement
+varDecl = do
+  match "var"
+  whitespace
+  varName <- pIdentifier
+  whitespace
+  initValue <- optional (mchar '=' *> pExpression)
+  mchar ';' <|> panic "Expected ';' after a variable declaration."
+  return $ VarInitialize varName $ fromMaybe (Literal Nil) initValue
+
+pDeclaration :: Parser Statement
+pDeclaration = varDecl
+
+pCommand :: Parser Statement
+pCommand =
+  expressionStatement <|> printStatement
+
+printStatement :: Parser Statement
+printStatement = do
+    match "print" 
+    expr <- pExpression 
+    mchar ';' <|> panic "Expected ';' after a print statement."
+    return $ Print expr
+
+expressionStatement :: Parser Statement
+expressionStatement = do
+    expr <- pExpression
+    mchar ';' <|> panic "Expected ';' after an expression."
+    return $ Eval expr
+
+
+pProgram :: Parser [Statement]
+pProgram = many pStatement <* eof

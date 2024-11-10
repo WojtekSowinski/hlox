@@ -4,6 +4,7 @@ import Control.Applicative (Alternative (empty), (<|>))
 import Control.Monad (MonadPlus, mfilter)
 import Data.Foldable (foldl')
 import Data.List (isPrefixOf)
+import Unsafe.Coerce (unsafeCoerce)
 
 type ParseError = String
 
@@ -124,6 +125,15 @@ getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
 findNext :: Parser a -> Parser ()
 findNext (Parser pa) = Parser p
   where
-    p st = case pa st of
+    p s = recurse s s
+    recurse st@(inp, _) initSt = case pa st of
       (_, Matched _) -> (st, Matched ())
-      _ -> p $ fst $ runParser consumeChar st
+      (_, err) ->
+        if null inp
+          then (initSt, unsafeCoerce err)
+          else recurse (fst $ runParser consumeChar st) initSt
+
+whileM :: (Monad m) => m Bool -> m a -> m [a]
+whileM mb ma = do
+  b <- mb
+  if b then (:) <$> ma <*> whileM mb ma else return []

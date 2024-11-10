@@ -4,6 +4,7 @@ module Main where
 
 import Control.Monad (void, when)
 import Control.Monad.State (MonadIO (liftIO))
+import Data.Map qualified as Map
 import Exec (LoxAction, ProgramState (..), exec, runLoxAction)
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
@@ -11,12 +12,11 @@ import LoxParser (pProgram)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
 import System.Exit (exitSuccess)
-import qualified Data.Map as Map
 
 run :: String -> LoxAction ()
 run code = do
   let (_, Matched statements) = runParser pProgram (code, 1)
-  mapM_ exec statements
+  exec statements
 
 readPromptLine :: IO String
 readPromptLine = do
@@ -33,9 +33,10 @@ runPrompt st = do
   runPrompt newState
 
 initState :: ProgramState
-initState = ProgramState {
-    exitOnError = True,
-    environment = Map.empty
+initState =
+  ProgramState
+    { exitOnError = True,
+      environment = Map.empty
     }
 
 main :: IO ()

@@ -201,4 +201,4 @@ pProgram :: Parser Program
 pProgram = untilP eof pStatement
 
 pRepl :: Parser Program
-pRepl = ((:[]) . Print <$> pExpression <* eof) <|> pProgram
+pRepl = ((:[]) . Print <$> calm pExpression <* eof) <|> pProgram

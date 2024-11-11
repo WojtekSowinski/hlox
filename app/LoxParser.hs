@@ -100,7 +100,7 @@ pExpression :: Parser Expression
 pExpression = whitespace *> assignment <* whitespace
   where
     assignment = do
-      target <- equality
+      target <- disjunction
       value <- optional (mchar '=' *> assignment)
       case value of
         Nothing -> return target
@@ -108,6 +108,16 @@ pExpression = whitespace *> assignment <* whitespace
           if isValidLValue target
             then return $ Assign target ex
             else panic "Invalid assignment target."
+
+    disjunction = do
+        firstDisjunct <- conjunction
+        disjuncts <- many $ keyword "or" *> conjunction
+        return $ foldl' Or firstDisjunct disjuncts
+
+    conjunction = do
+        firstConjunct <- equality
+        conjuncts <- many $ keyword "or" *> equality
+        return $ foldl' And firstConjunct conjuncts
 
     equality = do
       firstComparand <- comparisonExp

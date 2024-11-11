@@ -83,6 +83,9 @@ interpret (Block statements) = do
   oldEnv <- gets environment
   mapM_ interpret statements
   modify (\s -> s {environment = oldEnv})
+interpret (If cond trueBranch falseBranch) = do
+    condVal <- eval cond
+    interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret _ = undefined
 
 eval :: Expression -> LoxAction Value

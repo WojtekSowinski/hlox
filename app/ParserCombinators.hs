@@ -62,7 +62,7 @@ instance MonadFail Parser where
 panic :: ParseError -> Parser a
 panic err = Parser (,Panicked err)
 
--- | Create a version of the supplied parser which fails instead of panicking
+-- | Modify the supplied parser to fail instead of panicking
 calm :: Parser a -> Parser a
 calm (Parser pa) = Parser p where
     p st = case pa st of

@@ -65,7 +65,7 @@ executable hlox
     other-modules:    ParserCombinators
                       LoxParser
                       LoxAST
-                      Exec
+                      LoxInterpreter
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

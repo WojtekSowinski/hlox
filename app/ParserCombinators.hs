@@ -4,7 +4,7 @@ import Control.Applicative (Alternative (empty), (<|>))
 import Control.Monad (MonadPlus, mfilter)
 import Data.Foldable (foldl')
 import Data.List (isPrefixOf)
-import Unsafe.Coerce (unsafeCoerce)
+import Data.Functor (($>))
 
 type ParseError = String
 
@@ -13,7 +13,7 @@ type ParseState = (String, Int)
 data ParseOutput a
   = Matched a -- The input was parsed successfully
   | Failed ParseError -- The input didn't match the expected pattern. Try other parsers or panic
-  | Panicked ParseError -- Error!!! Short-circuit other parsers, enter panic mode, report the error and synchronize
+  | Panicked ParseError -- Error! Short-circuit other parsers, enter panic mode, report the error and synchronize
   deriving (Functor, Show)
 
 newtype Parser a = Parser {runParser :: ParseState -> (ParseState, ParseOutput a)}
@@ -63,15 +63,15 @@ panic :: ParseError -> Parser a
 panic err = Parser (,Panicked err)
 
 -- | Recover from a panic or unhandled failure
-(<-!!!->) :: Parser a -> (ParseError -> Parser a) -> Parser a
-Parser pa <-!!!-> sync = Parser p
+(<!>) :: Parser a -> (ParseError -> Parser a) -> Parser a
+Parser pa <!> sync = Parser p
   where
     p st = case pa st of
       success@(_, Matched _) -> success
       (st', Panicked err) -> runParser (sync err) st'
-      (st', Failed err) -> runParser (sync $ "Unhandled parser failure: " ++ err) st'
+      (st', Failed err) -> runParser (sync err) st'
 
-infixl 3 <-!!!-> -- <-!!!-> has the same precedence and associativity as <|>
+infixl 3 <!> -- <!> has the same precedence and associativity as <|>
 
 instance MonadPlus Parser
 
@@ -120,20 +120,23 @@ consumeWhile f = Parser p
 getLineNr :: Parser Int
 getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
 
--- | Consume input up to (but not including) the next occurance of the pattern
---  matched by the supplied parser. If the pattern is not found, this parser fails.
-findNext :: Parser a -> Parser ()
+findNext :: Parser a -> Parser a
 findNext (Parser pa) = Parser p
   where
     p s = recurse s s
     recurse st@(inp, _) initSt = case pa st of
-      (_, Matched _) -> (st, Matched ())
+      out@(_, Matched _) -> out
       (_, err) ->
         if null inp
-          then (initSt, unsafeCoerce err)
+          then (initSt, err)
           else recurse (fst $ runParser consumeChar st) initSt
 
-whileM :: (Monad m) => m Bool -> m a -> m [a]
-whileM mb ma = do
-  b <- mb
-  if b then (:) <$> ma <*> whileM mb ma else return []
+testFor :: Parser a -> Parser a
+testFor (Parser p) = Parser t
+  where
+    t st = case p st of
+      (_, Matched a) -> (st, Matched a)
+      (_, err) -> (st, err)
+
+untilA :: (Alternative f) => f a -> f b -> f [b]
+untilA cond loop =  (cond $> []) <|> ( (:) <$> loop <*> untilA cond loop )

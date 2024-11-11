@@ -11,7 +11,7 @@ data Value
   deriving (Eq)
 
 instance Show Value where
-  show (LitString s) = show s
+  show (LitString s) = s
   show (LitNumber n) = show n
   show (LitBoolean b) = map toLower $ show b
   show Nil = "nil"
@@ -32,6 +32,8 @@ instance Show BinOp where
 
 type Identifier = String
 
+type Program = [Statement]
+
 data Expression
   = Literal Value
   | Variable Identifier
@@ -47,17 +49,15 @@ data Expression
 data Statement
   = Eval Expression
   | Print Expression
-  | Scope Block
   | VarInitialize {name :: Identifier, value :: Expression}
-  | If {condition :: Expression, trueBranch :: Block, falseBranch :: Block}
-  | While {condition :: Expression, body :: Block}
-  | For {init :: Statement, condition :: Expression, increment :: Statement, body :: Block}
-  | FunctionDef {name :: Identifier, params :: [Identifier], body :: Block}
+  | If {condition :: Expression, trueBranch :: Statement, falseBranch :: Statement}
+  | While {condition :: Expression, body :: Statement}
+  | For {init :: Statement, condition :: Expression, increment :: Statement, body :: Statement}
+  | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
   | Return Expression
   | CouldNotParse {lineNr :: Int, errMsg :: String}
+  | Block [Statement]
   deriving (Show)
-
-newtype Block = Block [Statement] deriving (Show)
 
 isValidLValue :: Expression -> Bool
 isValidLValue (Variable _) = True

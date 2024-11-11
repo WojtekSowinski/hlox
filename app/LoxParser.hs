@@ -7,6 +7,7 @@ import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
+import Data.Traversable (for)
 import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
@@ -25,9 +26,9 @@ alphaNumeric = letter <|> digit
 
 keyword :: String -> Parser String
 keyword expected = do
-    word <- many alphaNumeric
-    guard (word == expected)
-    return expected
+  word <- many alphaNumeric
+  guard (word == expected)
+  return expected
 
 pIdentifier :: Parser Identifier
 pIdentifier = do
@@ -110,14 +111,14 @@ pExpression = whitespace *> assignment <* whitespace
             else panic "Invalid assignment target."
 
     disjunction = do
-        firstDisjunct <- conjunction
-        disjuncts <- many $ keyword "or" *> conjunction
-        return $ foldl' Or firstDisjunct disjuncts
+      firstDisjunct <- conjunction
+      disjuncts <- many $ keyword "or" *> conjunction
+      return $ foldl' Or firstDisjunct disjuncts
 
     conjunction = do
-        firstConjunct <- equality
-        conjuncts <- many $ keyword "or" *> equality
-        return $ foldl' And firstConjunct conjuncts
+      firstConjunct <- equality
+      conjuncts <- many $ keyword "or" *> equality
+      return $ foldl' And firstConjunct conjuncts
 
     equality = do
       firstComparand <- comparisonExp
@@ -179,7 +180,12 @@ pStatement =
 
 pCommand :: Parser Statement
 pCommand =
-  expressionStatement <|> ifStatement <|> printStatement <|> block
+  expressionStatement
+    <|> forLoop
+    <|> ifStatement
+    <|> printStatement
+    <|> whileLoop
+    <|> block
 
 pDeclaration :: Parser Statement
 pDeclaration = varDecl -- <|> funcDef
@@ -218,17 +224,42 @@ block = do
 
 ifStatement :: Parser Statement
 ifStatement = do
-    keyword "if"
-    whitespace
-    mchar '(' <|> panic "Expected '(' after 'if'."
-    cond <- pExpression
-    mchar ')' <|> panic "Missing ')' after if condition."
-    trueBranch <- whitespace *> pCommand <* whitespace
-    falseBranch <- optional (keyword "else" *> whitespace *> pCommand)
-    return $ If cond trueBranch (fromMaybe NOP falseBranch)
+  keyword "if"
+  whitespace
+  mchar '(' <|> panic "Expected '(' after 'if'."
+  cond <- pExpression
+  mchar ')' <|> panic "Missing ')' after condition."
+  trueBranch <- whitespace *> pCommand <* whitespace
+  falseBranch <- optional (keyword "else" *> whitespace *> pCommand)
+  return $ If cond trueBranch (fromMaybe NOP falseBranch)
+
+whileLoop :: Parser Statement
+whileLoop = do
+  keyword "while"
+  whitespace
+  mchar '(' <|> panic "Expected '(' after 'while'."
+  cond <- pExpression
+  mchar ')' <|> panic "Missing ')' after condition."
+  whitespace
+  While cond <$> pCommand
+
+forLoop :: Parser Statement
+forLoop = do
+  keyword "for"
+  whitespace
+  mchar '(' <|> panic "Expected '(' after 'for'."
+  whitespace
+  initStatement <- (mchar ';' >> return NOP) <|> varDecl <|> expressionStatement
+  cond <- pExpression <|> return (Literal $ LitBoolean True)
+  mchar ';' <|> panic "Expected ';' after a loop condition."
+  inc <- pExpression <|> return (Literal Nil)
+  mchar ')' <|> panic "Missing ')' after for loop initialization clauses."
+  whitespace
+  body <- pCommand
+  return $ Block [initStatement, While cond $ Block [body, Eval inc]]
 
 pProgram :: Parser Program
 pProgram = untilP eof pStatement
 
 pRepl :: Parser Program
-pRepl = ((:[]) . Print <$> calm pExpression <* eof) <|> pProgram
+pRepl = ((: []) . Print <$> calm pExpression <* eof) <|> pProgram

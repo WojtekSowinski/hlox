@@ -1,48 +1,27 @@
-module LoxInterpreter where
+module LoxInterpreter
+  ( LoxAction,
+    ProgramState,
+    exec,
+    initState,
+    runLoxAction,
+  )
+where
 
-import Control.Applicative ((<|>))
 import Control.Monad.State
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
-import Data.Map qualified as Map
-import Data.Maybe (isJust)
 import LoxAST
+import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
 
 type ProgramState = Scope
 
-data Scope = Scope {local :: Map.Map Identifier Value, enclosing :: Maybe Scope}
-
-initState :: ProgramState
-initState = Scope {local = Map.empty, enclosing = Nothing}
-
-isDefined :: Identifier -> Scope -> Bool
-isDefined varName = isJust . lookUp varName
-
-lookUp :: Identifier -> Scope -> Maybe Value
-lookUp varName scope =
-  Map.lookup varName (local scope) <|> (lookUp varName =<< enclosing scope)
-
-insertVar :: Identifier -> Value -> Scope -> Scope
-insertVar varName val scope =
-  scope {local = Map.insert varName val $ local scope}
-
-updateVar :: Identifier -> Value -> Scope -> Scope
-updateVar varName val scope =
-  if Map.member varName (local scope)
-    then insertVar varName val scope
-    else scope {enclosing = updateVar varName val <$> enclosing scope}
-
-enterNew :: Scope -> Scope
-enterNew scope = Scope {local = Map.empty, enclosing = Just scope}
-
-discardLocal :: Scope -> Scope
-discardLocal (Scope _ (Just enclosing)) = enclosing
-discardLocal globalScope = globalScope
-
 type LoxAction = StateT ProgramState (ExceptT LoxError IO)
 
 type LoxError = (Int, String)
+
+initState :: ProgramState
+initState = emptyScope
 
 whileM_ :: (Monad m) => m Bool -> m a -> m ()
 whileM_ mb ma = do

@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
-module LoxParser where
+module LoxParser (program, repl) where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
@@ -29,8 +29,8 @@ keyword expected = do
   guard (word == expected)
   return expected
 
-pIdentifier :: Parser Identifier
-pIdentifier = do
+identifier :: Parser Identifier
+identifier = do
   testFor letter
   name <- many alphaNumeric
   guard (name `notElem` reservedKeywords)
@@ -56,27 +56,27 @@ reservedKeywords =
     "while"
   ]
 
-pBool :: Parser Bool
-pBool = (keyword "true" >> return True) <|> (keyword "false" >> return False)
+boolean :: Parser Bool
+boolean = (keyword "true" >> return True) <|> (keyword "false" >> return False)
 
-pNumber :: Parser Double
-pNumber = do
+number :: Parser Double
+number = do
   whole <- some digit
   frac <- ((:) <$> mchar '.' <*> some digit) <|> return ""
   return $ read $ whole ++ frac
 
-pString :: Parser String
-pString = do
+string :: Parser String
+string = do
   mchar '"'
   str <- consumeWhile (/= '"')
   mchar '"' <|> panic "Unterminated string"
   return str
 
-pValue :: Parser Value
-pValue =
-  LitBoolean <$> pBool
-    <|> LitNumber <$> pNumber
-    <|> LitString <$> pString
+literal :: Parser Value
+literal =
+  LitBoolean <$> boolean
+    <|> LitNumber <$> number
+    <|> LitString <$> string
     <|> (keyword "nil" >> return Nil)
 
 operatorDict :: [(String, BinOp)]
@@ -93,11 +93,11 @@ operatorDict =
     ("!=", NEQ)
   ]
 
-pOperator :: [String] -> Parser BinOp
-pOperator ops = fromJust . flip lookup operatorDict <$> choice (map match ops)
+binaryOperator :: [String] -> Parser BinOp
+binaryOperator ops = fromJust . flip lookup operatorDict <$> choice (map match ops)
 
-pExpression :: Parser Expression
-pExpression = whitespace *> assignment <* whitespace
+expression :: Parser Expression
+expression = whitespace *> assignment <* whitespace
   where
     assignment = do
       target <- disjunction
@@ -121,25 +121,25 @@ pExpression = whitespace *> assignment <* whitespace
 
     equality = do
       firstComparand <- comparisonExp
-      let comparand = (,) <$> pOperator ["==", "!="] <*> comparisonExp
+      let comparand = (,) <$> binaryOperator ["==", "!="] <*> comparisonExp
       comparands <- many comparand
       return $ foldl' (\l (op, r) -> BinOperation l op r) firstComparand comparands
 
     comparisonExp = do
       firstComparand <- sumExp
-      let comparand = (,) <$> pOperator [">=", ">", "<=", "<"] <*> sumExp
+      let comparand = (,) <$> binaryOperator [">=", ">", "<=", "<"] <*> sumExp
       comparands <- many comparand
       return $ foldl' (\l (op, r) -> BinOperation l op r) firstComparand comparands
 
     sumExp = do
       firstTerm <- productExp
-      let term = (,) <$> pOperator ["-", "+"] <*> productExp
+      let term = (,) <$> binaryOperator ["-", "+"] <*> productExp
       terms <- many term
       return $ foldl' (\l (op, r) -> BinOperation l op r) firstTerm terms
 
     productExp = do
       firstFactor <- unaryExp
-      let factor = (,) <$> pOperator ["/", "*"] <*> unaryExp
+      let factor = (,) <$> binaryOperator ["/", "*"] <*> unaryExp
       factors <- many factor
       return $ foldl' (\l (op, r) -> BinOperation l op r) firstFactor factors
 
@@ -150,9 +150,9 @@ pExpression = whitespace *> assignment <* whitespace
 
     primaryExp =
       whitespace
-        *> ( Literal <$> pValue
-               <|> Variable <$> pIdentifier
-               <|> (mchar '(' *> pExpression <* (mchar ')' <|> panic "Mismatched Brackets."))
+        *> ( Literal <$> literal
+               <|> Variable <$> identifier
+               <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
            )
         <* whitespace
 
@@ -167,18 +167,18 @@ startOfStatement = do
   word <- many alphaNumeric
   guard (word `elem` ["class", "for", "fun", "if", "print", "return", "var", "while"])
 
-pStatement :: Parser Statement
-pStatement =
+statement :: Parser Statement
+statement =
   ( do
       whitespace
-      s <- pCommand <|> pDeclaration <|> (consumeChar *> panic "Invalid syntax.")
+      s <- command <|> declaration <|> (consumeChar *> panic "Invalid syntax.")
       whitespace
       return s
   )
     <!> synchronize
 
-pCommand :: Parser Statement
-pCommand =
+command :: Parser Statement
+command =
   expressionStatement
     <|> forLoop
     <|> ifStatement
@@ -186,16 +186,16 @@ pCommand =
     <|> whileLoop
     <|> block
 
-pDeclaration :: Parser Statement
-pDeclaration = varDecl -- <|> funcDef
+declaration :: Parser Statement
+declaration = varDecl -- <|> funcDef
 
 varDecl :: Parser Statement
 varDecl = do
   keyword "var"
   whitespace
-  varName <- pIdentifier
+  varName <- identifier
   whitespace
-  initValue <- optional (mchar '=' *> pExpression)
+  initValue <- optional (mchar '=' *> expression)
   mchar ';' <|> panic "Expected ';' after a variable declaration."
   return $ VarInitialize varName $ fromMaybe (Literal Nil) initValue
 
@@ -205,20 +205,20 @@ funcDef = undefined
 printStatement :: Parser Statement
 printStatement = do
   keyword "print"
-  expr <- pExpression
+  expr <- expression
   mchar ';' <|> panic "Expected ';' after a print statement."
   return $ Print expr
 
 expressionStatement :: Parser Statement
 expressionStatement = do
-  expr <- pExpression
+  expr <- expression
   mchar ';' <|> panic "Expected ';' after an expression."
   return $ Eval expr
 
 block :: Parser Statement
 block = do
   mchar '{'
-  statements <- untilP (mchar '}') pStatement <|> panic "Missing '}'."
+  statements <- untilP (mchar '}') statement <|> panic "Missing '}'."
   return $ Block statements
 
 ifStatement :: Parser Statement
@@ -226,10 +226,10 @@ ifStatement = do
   keyword "if"
   whitespace
   mchar '(' <|> panic "Expected '(' after 'if'."
-  cond <- pExpression
+  cond <- expression
   mchar ')' <|> panic "Missing ')' after condition."
-  trueBranch <- whitespace *> pCommand <* whitespace
-  falseBranch <- optional (keyword "else" *> whitespace *> pCommand)
+  trueBranch <- whitespace *> command <* whitespace
+  falseBranch <- optional (keyword "else" *> whitespace *> command)
   return $ If cond trueBranch (fromMaybe NOP falseBranch)
 
 whileLoop :: Parser Statement
@@ -237,10 +237,10 @@ whileLoop = do
   keyword "while"
   whitespace
   mchar '(' <|> panic "Expected '(' after 'while'."
-  cond <- pExpression
+  cond <- expression
   mchar ')' <|> panic "Missing ')' after condition."
   whitespace
-  While cond <$> pCommand
+  While cond <$> command
 
 forLoop :: Parser Statement
 forLoop = do
@@ -249,16 +249,16 @@ forLoop = do
   mchar '(' <|> panic "Expected '(' after 'for'."
   whitespace
   initStatement <- (mchar ';' >> return NOP) <|> varDecl <|> expressionStatement
-  cond <- pExpression <|> return (Literal $ LitBoolean True)
+  cond <- expression <|> return (Literal $ LitBoolean True)
   mchar ';' <|> panic "Expected ';' after a loop condition."
-  inc <- pExpression <|> return (Literal Nil)
+  inc <- expression <|> return (Literal Nil)
   mchar ')' <|> panic "Missing ')' after for loop initialization clauses."
   whitespace
-  body <- pCommand
+  body <- command
   return $ Block [initStatement, While cond $ Block [body, Eval inc]]
 
-pProgram :: Parser Program
-pProgram = untilP eof pStatement
+program :: Parser Program
+program = untilP eof statement
 
-pRepl :: Parser Program
-pRepl = ((: []) . Print <$> calm pExpression <* eof) <|> pProgram
+repl :: Parser Program
+repl = ((: []) . Print <$> calm expression <* eof) <|> program

@@ -2,22 +2,22 @@
 
 module Main where
 
-import Control.Monad (void, when)
+import Control.Monad (when)
 import Control.Monad.State (MonadIO (liftIO))
-import Data.Map qualified as Map
-import LoxInterpreter (LoxAction, ProgramState (..), exec, runLoxAction)
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
+import LoxAST (Program)
+import LoxInterpreter (LoxAction, ProgramState, exec, initState, runLoxAction)
 import LoxParser (pProgram, pRepl)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
-import System.Exit (exitSuccess)
-import LoxAST (Program)
+import System.Exit (ExitCode (ExitFailure), exitSuccess, exitWith)
 
-run :: String -> Parser Program -> LoxAction ()
+run :: String -> Parser Program -> LoxAction ExitCode
 run code parser = do
-  let (_, Matched statements) = runParser parser (code, 1)
-  exec statements
+  case runParser parser (code, 1) of
+    (_, Matched statements) -> exec statements
+    _ -> liftIO (putStrLn "PARSER BUG!!!") >> return (ExitFailure 1)
 
 readPromptLine :: IO String
 readPromptLine = do
@@ -30,22 +30,16 @@ readPromptLine = do
 runRepl :: ProgramState -> IO ()
 runRepl st = do
   code <- liftIO readPromptLine
-  newState <- runLoxAction (run code pRepl) st
+  (_, newState) <- runLoxAction (run code pRepl) st
   runRepl newState
-
-initState :: ProgramState
-initState =
-  ProgramState
-    { exitOnError = True,
-      environment = Map.empty
-    }
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    [] -> runRepl $ initState {exitOnError = False}
+    [] -> runRepl initState
     [filename] -> do
       code <- readFile filename
-      void $ runLoxAction (run code pProgram) initState
+      (exitCode, _) <- runLoxAction (run code pProgram) initState
+      exitWith exitCode
     _ -> fail "Usage: hlox [script]"

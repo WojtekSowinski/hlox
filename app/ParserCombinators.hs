@@ -3,8 +3,8 @@ module ParserCombinators where
 import Control.Applicative (Alternative (empty), (<|>))
 import Control.Monad (MonadPlus, mfilter)
 import Data.Foldable (foldl')
-import Data.List (isPrefixOf)
 import Data.Functor (($>))
+import Data.List (isPrefixOf)
 
 type ParseError = String
 
@@ -64,10 +64,11 @@ panic err = Parser (,Panicked err)
 
 -- | Modify the supplied parser to fail instead of panicking
 calm :: Parser a -> Parser a
-calm (Parser pa) = Parser p where
+calm (Parser pa) = Parser p
+  where
     p st = case pa st of
-        (st', Panicked err) -> (st', Failed err)
-        result -> result
+      (st', Panicked err) -> (st', Failed err)
+      result -> result
 
 -- | Recover from a panic or unhandled failure
 (<!>) :: Parser a -> (ParseError -> Parser a) -> Parser a
@@ -146,4 +147,4 @@ testFor pa = Parser p
       (_, err) -> (st, err)
 
 untilP :: Parser a -> Parser b -> Parser [b]
-untilP cond loop = (calm cond $> []) <|> ( (:) <$> loop <*> untilP cond loop )
+untilP cond loop = (calm cond $> []) <|> ((:) <$> loop <*> untilP cond loop)

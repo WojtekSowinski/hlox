@@ -7,7 +7,6 @@ import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
-import Data.Traversable (for)
 import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)

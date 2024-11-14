@@ -127,6 +127,10 @@ eval (Variable varName) = do
     Nothing -> loxThrow (1, "Undefined Variable " ++ show varName ++ ".")
     Just val -> return val
 eval (Assign target ex) = assign target ex
+eval (FunctionCall funcEx argExs) = do
+    func <- eval funcEx
+    args <- mapM eval argExs
+    call func args
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do

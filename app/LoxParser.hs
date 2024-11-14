@@ -3,7 +3,7 @@
 module LoxParser (program, repl) where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
-import Control.Monad (guard, mfilter, void)
+import Control.Monad (guard, mfilter, void, when)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
@@ -146,7 +146,13 @@ expression = whitespace *> assignment <* whitespace
     unaryExp =
       mchar '!' *> (Not <$> unaryExp)
         <|> mchar '-' *> (Negative <$> unaryExp)
-        <|> primaryExp
+        <|> call
+
+    call = do
+      func <- primaryExp
+      args <- mchar '(' *> (expression `sepBy` mchar ',') <* mchar ')'
+      when (length args > 255) $ panic "Can't have more than 255 arguments."
+      return $ FunctionCall func args
 
     primaryExp =
       whitespace
@@ -187,7 +193,7 @@ command =
     <|> block
 
 declaration :: Parser Statement
-declaration = varDecl -- <|> funcDef
+declaration = varDecl <|> funcDef
 
 varDecl :: Parser Statement
 varDecl = do
@@ -200,7 +206,17 @@ varDecl = do
   return $ VarInitialize varName $ fromMaybe (Literal Nil) initValue
 
 funcDef :: Parser Statement
-funcDef = undefined
+funcDef = do
+  keyword "fun"
+  whitespace
+  funcName <- identifier
+  whitespace
+  params <- parameters
+  body <- whitespace *> command
+  return $ FunctionDef funcName params body
+
+parameters :: Parser [Identifier]
+parameters = mchar '(' *> (identifier `sepBy` (whitespace *> mchar ',' <* whitespace))
 
 printStatement :: Parser Statement
 printStatement = do

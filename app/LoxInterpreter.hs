@@ -8,35 +8,11 @@ module LoxInterpreter
 where
 
 import Control.Monad.State
-import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
 import LoxAST
 import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
-
-type ProgramState = Scope
-
-type LoxAction = StateT ProgramState (ExceptT LoxError IO)
-
-type LoxError = (Int, String)
-
-initState :: ProgramState
-initState = emptyScope
-
-whileM_ :: (Monad m) => m Bool -> m a -> m ()
-whileM_ mb ma = do
-  b <- mb
-  when b $ ma >> whileM_ mb ma
-
-isTruthy :: Value -> Bool
-isTruthy Nil = False
-isTruthy (LitBoolean b) = b
-isTruthy _ = True
-
-reportError :: LoxError -> IO ()
-reportError (ln, err) = do
-  let errorBanner = "\027[1;31mERROR on line " ++ show ln ++ ": \027[22m"
-  putStrLn $ errorBanner ++ err ++ "\027[0m"
+import LoxInternals
 
 errorsIn :: Statement -> [LoxError]
 errorsIn (CouldNotParse ln err) = [(ln, err)]
@@ -52,26 +28,6 @@ exec program = do
   if null errors
     then mapM_ interpret program >> return ExitSuccess
     else liftIO (mapM_ reportError errors) >> return (ExitFailure 1)
-
-runLoxAction :: LoxAction a -> ProgramState -> IO (ExitCode, ProgramState)
-runLoxAction action st = do
-  result <- runExceptT $ runStateT action st
-  case result of
-    Left err -> do
-      reportError err
-      return (ExitFailure 2, st)
-    Right (_, st') -> return (ExitSuccess, st')
-
-loxThrow :: LoxError -> LoxAction a
-loxThrow = lift . throwE
-
-loxCatch :: LoxAction a -> (LoxError -> LoxAction a) -> LoxAction a
-loxCatch action handler = do
-  st <- get
-  let ioHandler a = runStateT (handler a) st
-  (a, s) <- lift $ catchE (runStateT action st) ioHandler
-  put s
-  return a
 
 interpret :: Statement -> LoxAction ()
 interpret NOP = return ()
@@ -115,8 +71,8 @@ eval (BinOperation leftEx op rightEx) = do
   leftOp <- eval leftEx
   rightOp <- eval rightEx
   case op of
-    EQ -> return $ LitBoolean $ leftOp == rightOp
-    NEQ -> return $ LitBoolean $ leftOp /= rightOp
+    EQ -> LitBoolean <$> leftOp `equals` rightOp
+    NEQ -> LitBoolean . not <$> (leftOp `equals` rightOp)
     ADD -> add leftOp rightOp
     _ -> case (leftOp, rightOp) of
       (LitNumber n1, LitNumber n2) -> return $ calc n1 op n2
@@ -130,7 +86,8 @@ eval (Assign target ex) = assign target ex
 eval (FunctionCall funcEx argExs) = do
     func <- eval funcEx
     args <- mapM eval argExs
-    call func args
+    -- call func args
+    undefined
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do
@@ -156,3 +113,11 @@ calc n1 GT n2 = LitBoolean $ n1 > n2
 calc n1 LEQ n2 = LitBoolean $ n1 <= n2
 calc n1 GEQ n2 = LitBoolean $ n1 >= n2
 calc _ _ _ = undefined
+
+equals :: Value -> Value -> LoxAction Bool
+equals (LitBoolean b1) (LitBoolean b2) = return $ b1 == b2
+equals (LitNumber n1) (LitNumber n2) = return $ n1 == n2
+equals (LitString s1) (LitString s2) = return $ s1 == s2
+equals Nil Nil = return True
+equals (Function _) (Function _) = loxThrow (1, "Can't compare functions for equality.")
+equals _ _ = return False

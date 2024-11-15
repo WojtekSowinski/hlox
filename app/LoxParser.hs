@@ -146,13 +146,16 @@ expression = whitespace *> assignment <* whitespace
     unaryExp =
       mchar '!' *> (Not <$> unaryExp)
         <|> mchar '-' *> (Negative <$> unaryExp)
-        <|> call
+        <|> functionCall
 
-    call = do
+    functionCall = do
       func <- primaryExp
-      args <- mchar '(' *> (expression `sepBy` mchar ',') <* mchar ')'
-      when (length args > 255) $ panic "Can't have more than 255 arguments."
-      return $ FunctionCall func args
+      call <- optional $ mchar '(' *> (expression `sepBy` mchar ',') <* mchar ')'
+      case call of
+        Nothing -> return func
+        Just args -> do 
+            when (length args > 255) $ panic "Can't have more than 255 arguments."
+            return $ FunctionCall func args
 
     primaryExp =
       whitespace
@@ -190,6 +193,7 @@ command =
     <|> ifStatement
     <|> printStatement
     <|> whileLoop
+    <|> returnStatement
     <|> block
 
 declaration :: Parser Statement
@@ -217,6 +221,13 @@ funcDef = do
 
 parameters :: Parser [Identifier]
 parameters = mchar '(' *> (identifier `sepBy` (whitespace *> mchar ',' <* whitespace))
+
+returnStatement :: Parser Statement
+returnStatement = do
+    keyword "return"
+    value <- optional expression
+    mchar ';' <|> panic "Expected ';' after a return statement."
+    return $ Return value
 
 printStatement :: Parser Statement
 printStatement = do

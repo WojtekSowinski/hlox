@@ -1,6 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
-module LoxParser (program, repl) where
+-- module LoxParser (program, repl) where
+module LoxParser where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void, when)
@@ -10,6 +11,8 @@ import Data.Maybe (fromJust, fromMaybe)
 import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
+import LoxInternals
+import Scope (Identifier)
 
 whitespace :: Parser String
 whitespace = consumeWhile (`elem` " \r\t\n")

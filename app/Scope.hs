@@ -36,11 +36,3 @@ enterNewScope newVars scope = Scope {local = Map.fromList newVars, enclosing = J
 discardLocal :: Scope v -> Scope v
 discardLocal (Scope _ (Just enclosing)) = enclosing
 discardLocal globalScope = globalScope
-
-depth :: Scope v -> Int
-depth (Scope _ Nothing) = 1
-depth (Scope _ (Just enclosing)) = 1 + depth enclosing
-
-discard :: Int -> Scope v -> Scope v
-discard 0 s = s 
-discard n s = discard (n-1) (discardLocal s)

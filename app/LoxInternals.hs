@@ -2,13 +2,14 @@ module LoxInternals where
 
 import Control.Monad (when)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.State (StateT, runStateT, modify, gets)
+import Control.Monad.State (StateT, runStateT)
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
 import Scope
 import System.Exit (ExitCode (..))
+import Data.IORef (IORef)
 
-type ProgramState = Scope Value
+type ProgramState = Scope (IORef Value)
 
 type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
 

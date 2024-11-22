@@ -2,7 +2,7 @@ module LoxInterpreter
   ( LoxAction,
     ProgramState,
     exec,
-    initState,
+    initialize,
     runLoxAction,
   )
 where
@@ -14,9 +14,12 @@ import LoxInternals
 import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
+import Data.IORef (newIORef, writeIORef, readIORef)
 
-initState :: ProgramState
-initState = fromList [("clock", Function clock)]
+initialize :: IO ProgramState
+initialize = do
+    clockRef <- newIORef $ Function clock
+    return $ fromList [("clock", clockRef)]
 
 errorsIn :: Statement -> [LoxError]
 errorsIn (CouldNotParse ln err) = [(ln, err)]
@@ -45,7 +48,7 @@ interpret (Print ex) =
     (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
 interpret (CouldNotParse _ _) = undefined
 interpret (VarInitialize varName ex) = do
-  initVal <- eval ex
+  initVal <- eval ex >>= (liftIO . newIORef)
   modify $ insertVar varName initVal
 interpret (Block statements) = do
   modify $ enterNewScope []
@@ -56,13 +59,14 @@ interpret (If cond trueBranch falseBranch) = do
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
 interpret (FunctionDef name params body) = do
-  currentEnv <- get
-  let f = LoxFunction {
-    name = name, 
-    params = params, 
-    body = body, 
-    closure = insertVar name (Function f) currentEnv }
-  put $ closure f
+  fref <- liftIO $ newIORef undefined
+  modify $ insertVar name fref
+  currentSate <- get
+  liftIO $ writeIORef fref $ Function $ LoxFunction {
+    name=name,
+    params=params,
+    body=body,
+    closure=currentSate}
 interpret (Return (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
@@ -96,7 +100,7 @@ eval (Variable varName) = do
   scope <- get
   case lookUp varName scope of
     Nothing -> loxThrow (1, "Undefined Variable " ++ show varName ++ ".")
-    Just val -> return val
+    Just ref -> liftIO $ readIORef ref
 eval (Assign target ex) = assign target ex
 eval (FunctionCall funcEx argExs) = do
   func <- eval funcEx
@@ -115,10 +119,12 @@ checkArity f args = do
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do
   scope <- get
-  unless (isDefined varName scope) $ loxThrow (1, "Undefined variable " ++ show varName ++ ".")
-  newVal <- eval ex
-  modify $ updateVar varName newVal
-  return newVal
+  case lookUp varName scope of 
+    Nothing -> loxThrow (1, "Undefined variable " ++ show varName ++ ".")
+    Just ref -> do
+        newVal <- eval ex
+        liftIO $ writeIORef ref newVal
+        return newVal
 assign _ _ = undefined
 
 add :: Value -> Value -> LoxAction Value
@@ -149,7 +155,7 @@ data LoxFunction = LoxFunction
   { name :: Identifier,
     params :: [Identifier],
     body :: Statement,
-    closure :: Scope Value
+    closure :: ProgramState
   }
 
 instance Show LoxFunction where
@@ -160,7 +166,8 @@ instance LoxCallable LoxFunction where
   call f args = do
     oldState <- get
     put $ closure f
-    modify $ enterNewScope $ zip (params f) args
+    argRefs <- mapM (liftIO . newIORef) args
+    modify $ enterNewScope $ zip (params f) argRefs
     returnVal <- acceptReturn $ interpret $ body f
     put oldState
     return returnVal

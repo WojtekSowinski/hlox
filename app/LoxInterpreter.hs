@@ -8,12 +8,12 @@ module LoxInterpreter
 where
 
 import Control.Monad.State
+import Functions (clock)
 import LoxAST
 import LoxInternals
 import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
-import Functions (clock)
 
 initState :: ProgramState
 initState = fromList [("clock", Function clock)]
@@ -48,14 +48,25 @@ interpret (VarInitialize varName ex) = do
   initVal <- eval ex
   modify $ insertVar varName initVal
 interpret (Block statements) = do
-  modify enterNew
+  modify $ enterNewScope []
   mapM_ interpret statements
   modify discardLocal
 interpret (If cond trueBranch falseBranch) = do
   condVal <- eval cond
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
-interpret _ = undefined
+interpret (FunctionDef name params body) = do
+  currentEnv <- get
+  let f = LoxFunction {
+    name = name, 
+    params = params, 
+    body = body, 
+    closure = insertVar name (Function f) currentEnv }
+  put $ closure f
+interpret (Return (Just ex)) = do
+  retVal <- eval ex
+  loxReturn retVal
+interpret (Return Nothing) = loxReturn Nil
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
@@ -98,7 +109,8 @@ checkArity :: (LoxCallable f) => f -> [Value] -> LoxAction ()
 checkArity f args = do
   let argNum = length args
   let expected = arity f
-  when (argNum /= expected) $ loxThrow (1, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
+  when (argNum /= expected) $
+    loxThrow (1, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do
@@ -132,3 +144,25 @@ equals (LitString s1) (LitString s2) = return $ s1 == s2
 equals Nil Nil = return True
 equals (Function _) (Function _) = loxThrow (1, "Can't compare functions for equality.")
 equals _ _ = return False
+
+data LoxFunction = LoxFunction
+  { name :: Identifier,
+    params :: [Identifier],
+    body :: Statement,
+    closure :: Scope Value
+  }
+
+instance Show LoxFunction where
+  show f = "<fn " ++ name f ++ ">"
+
+instance LoxCallable LoxFunction where
+  call :: LoxFunction -> [Value] -> LoxAction Value
+  call f args = do
+    oldState <- get
+    put $ closure f
+    modify $ enterNewScope $ zip (params f) args
+    returnVal <- acceptReturn $ interpret $ body f
+    put oldState
+    return returnVal
+  arity :: LoxFunction -> Int
+  arity = length . params

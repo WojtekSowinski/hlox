@@ -35,12 +35,12 @@ data Expression
 data Statement
   = Eval Expression
   | Print Expression
-  | VarInitialize {name :: Identifier, value :: Expression}
-  | If {condition :: Expression, trueBranch :: Statement, falseBranch :: Statement}
-  | While {condition :: Expression, body :: Statement}
-  | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
+  | VarInitialize Identifier Expression
+  | If Expression Statement Statement
+  | While Expression Statement
+  | FunctionDef Identifier [Identifier] Statement
   | Return (Maybe Expression)
-  | CouldNotParse {lineNr :: Int, errMsg :: String}
+  | CouldNotParse Int String
   | Block [Statement]
   | NOP
   deriving (Show)

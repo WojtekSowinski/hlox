@@ -1,0 +1,5 @@
+var a = "old";
+var b = a;
+b = "new";
+print a;
+print b;

@@ -172,7 +172,7 @@ synchronize :: ParseError -> Parser Statement
 synchronize err = do
   ln <- getLineNr
   findNext $ void (mchar ';') <|> testFor startOfStatement <|> eof
-  return $ CouldNotParse ln ("Parse error - " ++ err)
+  return $ StaticError ln ("Parse error - " ++ err)
 
 startOfStatement :: Parser ()
 startOfStatement = do

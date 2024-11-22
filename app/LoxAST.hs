@@ -40,7 +40,7 @@ data Statement
   | While Expression Statement
   | FunctionDef Identifier [Identifier] Statement
   | Return (Maybe Expression)
-  | CouldNotParse Int String
+  | StaticError Int String
   | Block [Statement]
   | NOP
   deriving (Show)

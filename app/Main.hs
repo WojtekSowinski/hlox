@@ -11,7 +11,7 @@ import LoxInterpreter (LoxAction, ProgramState, exec, initialize, runLoxAction)
 import LoxParser (program, repl)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
-import System.Exit (ExitCode (ExitFailure), exitSuccess, exitWith)
+import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitSuccess, exitWith)
 
 run :: String -> Parser Program -> LoxAction ExitCode
 run code parser = do
@@ -28,10 +28,12 @@ readPromptLine = do
   getLine
 
 runRepl :: ProgramState -> IO ()
-runRepl st = do
+runRepl state = do
   code <- liftIO readPromptLine
-  (_, newState) <- runLoxAction (run code repl) st
-  runRepl newState
+  (Right exitCode, newState) <- runLoxAction (run code repl) state
+  case exitCode of 
+    ExitSuccess -> runRepl newState
+    ExitFailure _ -> runRepl state
 
 main :: IO ()
 main = do
@@ -41,6 +43,6 @@ main = do
     [] -> runRepl initState
     [filename] -> do
       code <- readFile filename
-      (exitCode, _) <- runLoxAction (run code program) initState
+      (Right exitCode, _) <- runLoxAction (run code program) initState
       exitWith exitCode
     _ -> fail "Usage: hlox [script]"

@@ -1,10 +1,10 @@
 module StaticAnalysis where
 
 import Control.Monad.State (State, evalState, get, modify, put)
-import LoxAST (Expression (..), Program, Statement (..))
-import Scope (Identifier)
-import LoxInternals (LoxError)
 import Data.List (sortOn)
+import LoxAST (Expression (..), Program, Statement (..))
+import LoxInternals (LoxError)
+import Scope (Identifier)
 
 errorsIn :: Program -> [LoxError]
 errorsIn program = sortOn fst $ concat [f stmt | f <- passes, stmt <- program]
@@ -14,7 +14,7 @@ passes = [recursiveVars, invalidReturns None, doubleDeclarations, errorProductio
 
 recursiveVars :: Statement -> [LoxError]
 recursiveVars (VarInitialize line name expr) =
-  [( line, "Declaration of variable " ++ name ++ " refers to itself." ) | expr `refersTo` name]
+  [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]
 recursiveVars _ = []
 
 refersTo :: Expression -> Identifier -> Bool
@@ -27,6 +27,7 @@ refersTo (Assign _ left right) name = (left `refersTo` name) || (right `refersTo
 refersTo (Negative _ expr) name = expr `refersTo` name
 refersTo (Not expr) name = expr `refersTo` name
 refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
+refersTo (TooManyArgs _) _ = False
 
 data FunctionType = None | Function
 
@@ -49,7 +50,7 @@ doubleDecls :: Statement -> State [Identifier] [LoxError]
 doubleDecls (VarInitialize line name _) = do
   found <- get
   if name `elem` found
-    then return [(line , "Variable " ++ name ++ " declared multiple times in the same scope.")]
+    then return [(line, "Variable " ++ name ++ " declared multiple times in the same scope.")]
     else modify (name :) >> return []
 doubleDecls (Block statements) = do
   enclosing <- get
@@ -58,16 +59,34 @@ doubleDecls (Block statements) = do
   put enclosing
   return errors
 doubleDecls (FunctionDef _ _ body) = doubleDecls body
-doubleDecls (If _ trueBranch falseBranch) = 
-    (++) <$> doubleDecls trueBranch <*> doubleDecls falseBranch
+doubleDecls (If _ trueBranch falseBranch) =
+  (++) <$> doubleDecls trueBranch <*> doubleDecls falseBranch
 doubleDecls (While _ body) = doubleDecls body
 doubleDecls _ = return []
 
 errorProductions :: Statement -> [LoxError]
-errorProductions (StaticError ln err) = [(ln, err)]
+errorProductions (CouldNotParse ln err) = [(ln, "Parse error - " ++ err)]
+errorProductions (TooManyParams line) = [(line, "Function can't have more than 255 parameters.")]
+errorProductions (DuplicateParams line) =
+  [(line, "Function definition assigns the same identifier to multiple parameters.")]
+errorProductions (Eval expr) = errProdsInExpr expr
+errorProductions (Print expr) = errProdsInExpr expr
+errorProductions (Return _ (Just expr)) = errProdsInExpr expr
+errorProductions (VarInitialize _ _ expr) = errProdsInExpr expr
 errorProductions (Block statements) = concatMap errorProductions statements
-errorProductions (If _ ifTrue ifFalse) = errorProductions ifTrue ++ errorProductions ifFalse
-errorProductions (While _ body) = errorProductions body
+errorProductions (If cond ifTrue ifFalse) =
+  errProdsInExpr cond ++ errorProductions ifTrue ++ errorProductions ifFalse
+errorProductions (While cond body) = errProdsInExpr cond ++ errorProductions body
 errorProductions (FunctionDef _ _ body) = errorProductions body
 errorProductions _ = []
 
+errProdsInExpr :: Expression -> [LoxError]
+errProdsInExpr (TooManyArgs line) = [(line, "Function call can't take more than 255 arguments.")]
+errProdsInExpr (BinOperation _ left _ right) = errProdsInExpr left ++ errProdsInExpr right
+errProdsInExpr (Negative _ operand) = errProdsInExpr operand
+errProdsInExpr (Not operand) = errProdsInExpr operand
+errProdsInExpr (And left right) = errProdsInExpr left ++ errProdsInExpr right
+errProdsInExpr (Or left right) = errProdsInExpr left ++ errProdsInExpr right
+errProdsInExpr (Assign _ left right) = errProdsInExpr left ++ errProdsInExpr right
+errProdsInExpr (FunctionCall _ f args) = errProdsInExpr f ++ concatMap errProdsInExpr args
+errProdsInExpr _ = []

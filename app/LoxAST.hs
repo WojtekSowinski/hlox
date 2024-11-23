@@ -30,8 +30,9 @@ data Expression
   | Not {operand :: Expression}
   | And {left :: Expression, right :: Expression}
   | Or {left :: Expression, right :: Expression}
-  | Assign {line :: Int, target :: Expression, newValue :: Expression}
+  | Assign {line :: Int, left :: Expression, right :: Expression}
   | FunctionCall {line :: Int, function :: Expression, args :: [Expression]}
+  | TooManyArgs {line :: Int}
   deriving (Show)
 
 data Statement
@@ -42,9 +43,11 @@ data Statement
   | While {cond :: Expression, body :: Statement}
   | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
   | Return {line :: Int, returnValue :: Maybe Expression}
-  | StaticError {line :: Int, errMsg :: String}
   | Block {statements :: [Statement]}
   | NOP
+  | CouldNotParse {line :: Int, errMsg :: String}
+  | TooManyParams {line :: Int}
+  | DuplicateParams {line :: Int}
   deriving (Show)
 
 isValidLValue :: Expression -> Bool

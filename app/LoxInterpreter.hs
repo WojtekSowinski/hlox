@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module LoxInterpreter
   ( LoxAction,
     ProgramState,
@@ -48,7 +50,7 @@ interpret (Print ex) =
     (eval ex >>= (liftIO . print))
     (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
 interpret (StaticError _ _) = undefined
-interpret (VarInitialize varName ex) = do
+interpret (VarInitialize _ varName ex) = do
   initVal <- eval ex >>= (liftIO . newIORef)
   modify $ insertVar varName initVal
 interpret (Block statements) = do
@@ -64,74 +66,53 @@ interpret (FunctionDef name params body) = do
   modify $ insertVar name fref
   currentSate <- get
   liftIO $ writeIORef fref $ Function $ LoxFunction {
-    name=name,
-    params=params,
-    body=body,
+    fnName=name,
+    fnParams=params,
+    fnBody=body,
     closure=currentSate}
-interpret (Return (Just ex)) = do
+interpret (Return _ (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
-interpret (Return Nothing) = loxReturn Nil
+interpret (Return _ Nothing) = loxReturn Nil
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
 eval (Not ex) = LitBoolean . not . isTruthy <$> eval ex
-eval (Negative ex) = do
+eval (Negative line ex) = do
   operand <- eval ex
   case operand of
     LitNumber val -> return $ LitNumber (-val)
-    _ -> loxThrow (1, "Operand of a negation must be a number.")
+    _ -> loxThrow (line, "Operand of a negation must be a number.")
 eval (And leftEx rightEx) = do
   leftOp <- eval leftEx
   if isTruthy leftOp then eval rightEx else return leftOp
 eval (Or leftEx rightEx) = do
   leftOp <- eval leftEx
   if not $ isTruthy leftOp then eval rightEx else return leftOp
-eval (BinOperation leftEx op rightEx) = do
+eval (BinOperation line leftEx op rightEx) = do
   leftOp <- eval leftEx
   rightOp <- eval rightEx
-  case op of
-    EQ -> LitBoolean <$> leftOp `equals` rightOp
-    NEQ -> LitBoolean . not <$> (leftOp `equals` rightOp)
-    ADD -> add leftOp rightOp
-    _ -> case (leftOp, rightOp) of
-      (LitNumber n1, LitNumber n2) -> return $ calc n1 op n2
-      _ -> loxThrow (1, "Operands of '" ++ show op ++ "' must be numbers.")
-eval (Variable varName) = do
+  applyBinOp line leftOp op rightOp
+eval (Variable line varName) = do
   scope <- get
   case lookUp varName scope of
-    Nothing -> loxThrow (1, "Undefined Variable " ++ show varName ++ ".")
+    Nothing -> loxThrow (line, "Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
-eval (Assign target ex) = assign target ex
-eval (FunctionCall funcEx argExs) = do
+eval (Assign _ target ex) = assign target ex
+eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
   args <- mapM eval argExs
   case func of
-    Function f -> checkArity f args >> call f args
-    _ -> loxThrow (1, "Can't call " ++ show func ++ " as it is not a function.")
+    Function f -> checkArity line f args >> call f args
+    _ -> loxThrow (line, "Can't call " ++ show func ++ " as it is not a function.")
 
-checkArity :: (LoxCallable f) => f -> [Value] -> LoxAction ()
-checkArity f args = do
-  let argNum = length args
-  let expected = arity f
-  when (argNum /= expected) $
-    loxThrow (1, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
-
-assign :: Expression -> Expression -> LoxAction Value
-assign (Variable varName) ex = do
-  scope <- get
-  case lookUp varName scope of 
-    Nothing -> loxThrow (1, "Undefined variable " ++ show varName ++ ".")
-    Just ref -> do
-        newVal <- eval ex
-        liftIO $ writeIORef ref newVal
-        return newVal
-assign _ _ = undefined
-
-add :: Value -> Value -> LoxAction Value
-add (LitString s1) (LitString s2) = return $ LitString $ s1 ++ s2
-add (LitNumber n1) (LitNumber n2) = return $ calc n1 ADD n2
-add _ _ = loxThrow (1, "Operands of '+' must be numbers or strings.")
+applyBinOp :: Int -> Value -> BinOp -> Value -> LoxAction Value
+applyBinOp _ left EQ right = return $ LitBoolean $ left == right
+applyBinOp _ left NEQ right = return $ LitBoolean $ left /= right
+applyBinOp _ (LitString s1) ADD (LitString s2) = return $ LitString $ s1 ++ s2
+applyBinOp _ (LitNumber n1) op (LitNumber n2) = return $ calc n1 op n2
+applyBinOp line _ ADD _ = loxThrow (line, "Operands of '+' must be numbers or strings.")
+applyBinOp line _ op _ = loxThrow (line, "Operands of '" ++ show op ++ "' must be numbers.")
 
 calc :: Double -> BinOp -> Double -> Value
 calc n1 ADD n2 = LitNumber $ n1 + n2
@@ -144,23 +125,33 @@ calc n1 LEQ n2 = LitBoolean $ n1 <= n2
 calc n1 GEQ n2 = LitBoolean $ n1 >= n2
 calc _ _ _ = undefined
 
-equals :: Value -> Value -> LoxAction Bool
-equals (LitBoolean b1) (LitBoolean b2) = return $ b1 == b2
-equals (LitNumber n1) (LitNumber n2) = return $ n1 == n2
-equals (LitString s1) (LitString s2) = return $ s1 == s2
-equals Nil Nil = return True
-equals (Function _) (Function _) = loxThrow (1, "Can't compare functions for equality.")
-equals _ _ = return False
+checkArity :: (LoxCallable f) => Int -> f -> [Value] -> LoxAction ()
+checkArity line f args = do
+  let argNum = length args
+  let expected = arity f
+  when (argNum /= expected) $
+    loxThrow (line, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
+
+assign :: Expression -> Expression -> LoxAction Value
+assign (Variable line varName) ex = do
+  scope <- get
+  case lookUp varName scope of 
+    Nothing -> loxThrow (line, "Undefined variable " ++ show varName ++ ".")
+    Just ref -> do
+        newVal <- eval ex
+        liftIO $ writeIORef ref newVal
+        return newVal
+assign _ _ = undefined
 
 data LoxFunction = LoxFunction
-  { name :: Identifier,
-    params :: [Identifier],
-    body :: Statement,
+  { fnName :: Identifier,
+    fnParams :: [Identifier],
+    fnBody :: Statement,
     closure :: ProgramState
   }
 
 instance Show LoxFunction where
-  show f = "<fn " ++ name f ++ ">"
+  show f = "<fn " ++ fnName f ++ ">"
 
 instance LoxCallable LoxFunction where
   call :: LoxFunction -> [Value] -> LoxAction Value
@@ -168,9 +159,9 @@ instance LoxCallable LoxFunction where
     oldState <- get
     put $ closure f
     argRefs <- mapM (liftIO . newIORef) args
-    modify $ enterNewScope $ zip (params f) argRefs
-    returnVal <- acceptReturn $ interpret $ body f
+    modify $ enterNewScope $ zip (fnParams f) argRefs
+    returnVal <- acceptReturn $ interpret $ fnBody f
     put oldState
     return returnVal
   arity :: LoxFunction -> Int
-  arity = length . params
+  arity = length . fnParams

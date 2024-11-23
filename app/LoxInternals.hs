@@ -38,6 +38,15 @@ instance Show Value where
   show Nil = "nil"
   show (Function f) = show f
 
+instance Eq Value where
+  (==) :: Value -> Value -> Bool
+  (LitBoolean b1) == (LitBoolean b2) = b1 == b2
+  (LitNumber n1) == (LitNumber n2) = n1 == n2
+  (LitString s1) == (LitString s2) = s1 == s2
+  Nil == Nil = True
+  _ == _ = False
+
+
 isTruthy :: Value -> Bool
 isTruthy Nil = False
 isTruthy (LitBoolean b) = b

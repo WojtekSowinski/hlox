@@ -1,7 +1,8 @@
 module Scope where
-import qualified Data.Map as Map
-import Data.Maybe (isJust)
+
 import Control.Applicative ((<|>))
+import Data.Map qualified as Map
+import Data.Maybe (isJust)
 
 data Scope v = Scope {local :: Map.Map Identifier v, enclosing :: Maybe (Scope v)}
 
@@ -16,9 +17,12 @@ fromList vals = Scope {local = Map.fromList vals, enclosing = Nothing}
 isDefined :: Identifier -> Scope v -> Bool
 isDefined varName = isJust . lookUp varName
 
+lookUpLocal :: Identifier -> Scope v -> Maybe v
+lookUpLocal varName scope = Map.lookup varName (local scope)
+
 lookUp :: Identifier -> Scope v -> Maybe v
 lookUp varName scope =
-  Map.lookup varName (local scope) <|> (lookUp varName =<< enclosing scope)
+  lookUpLocal varName scope <|> (lookUp varName =<< enclosing scope)
 
 insertVar :: Identifier -> v -> Scope v -> Scope v
 insertVar varName val scope =

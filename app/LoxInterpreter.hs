@@ -1,5 +1,3 @@
-{-# LANGUAGE DuplicateRecordFields #-}
-
 module LoxInterpreter
   ( LoxAction,
     ProgramState,
@@ -10,25 +8,27 @@ module LoxInterpreter
 where
 
 import Control.Monad.State
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Functions (clock)
 import LoxAST
 import LoxInternals
 import Scope
+import StaticAnalysis (errorsIn)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
-import Data.IORef (newIORef, writeIORef, readIORef)
-import StaticAnalysis (errorsIn)
 
 initialize :: IO ProgramState
 initialize = do
-    clockRef <- newIORef $ Function clock
-    return $ fromList [("clock", clockRef)]
+  clockRef <- newIORef $ Function clock
+  return $ fromList [("clock", clockRef)]
 
 exec :: Program -> LoxAction ExitCode
 exec program = do
   let errors = errorsIn program
   if null errors
-    then loxCatch (mapM_ interpret program >> return ExitSuccess)
+    then
+      loxCatch
+        (mapM_ interpret program >> return ExitSuccess)
         (\err -> liftIO (reportError err) >> return (ExitFailure 1))
     else liftIO (mapM_ reportError errors) >> return (ExitFailure 1)
 
@@ -53,22 +53,13 @@ interpret (If cond trueBranch falseBranch) = do
   condVal <- eval cond
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
-interpret (FunctionDef name params body) = do
-  fref <- liftIO $ newIORef undefined
-  modify $ insertVar name fref
-  currentSate <- get
-  liftIO $ writeIORef fref $ Function $ LoxFunction {
-    fnName=name,
-    fnParams=params,
-    fnBody=body,
-    closure=currentSate}
+interpret (FunctionDecl f) = createFunction f
+interpret (ClassDecl name methods) = createClass name methods
 interpret (Return _ (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
 interpret (Return _ Nothing) = loxReturn Nil
 interpret (CouldNotParse _ _) = undefined
-interpret (TooManyParams _) = undefined
-interpret (DuplicateParams _) = undefined
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
@@ -131,12 +122,12 @@ checkArity line f args = do
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable line varName) ex = do
   scope <- get
-  case lookUp varName scope of 
+  case lookUp varName scope of
     Nothing -> loxThrow (line, "Undefined variable " ++ show varName ++ ".")
     Just ref -> do
-        newVal <- eval ex
-        liftIO $ writeIORef ref newVal
-        return newVal
+      newVal <- eval ex
+      liftIO $ writeIORef ref newVal
+      return newVal
 assign _ _ = undefined
 
 data LoxFunction = LoxFunction
@@ -161,3 +152,31 @@ instance LoxCallable LoxFunction where
     return returnVal
   arity :: LoxFunction -> Int
   arity = length . fnParams
+
+getLocalRef :: Identifier -> Value -> LoxAction (IORef Value)
+getLocalRef name value = do
+  oldState <- get
+  case lookUpLocal name oldState of
+    Just ref -> return ref
+    Nothing -> do
+      ref <- liftIO $ newIORef value
+      modify $ insertVar name ref
+      return ref
+
+createFunction :: FunctionDef -> LoxAction ()
+createFunction (FunctionDef name params body) = do
+  funcRef <- getLocalRef name undefined
+  currentState <- get
+  liftIO $
+    writeIORef funcRef $
+      Function
+        LoxFunction
+          { fnName = name,
+            fnParams = params,
+            fnBody = body,
+            closure = currentState
+          }
+createFunction _ = undefined
+
+createClass :: Identifier -> [FunctionDef] -> LoxAction ()
+createClass = undefined

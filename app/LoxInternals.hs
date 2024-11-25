@@ -5,8 +5,8 @@ import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.State (StateT, runStateT)
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
-import Scope
 import Data.IORef (IORef)
+import Scope
 
 type ProgramState = Scope (IORef Value)
 
@@ -45,14 +45,13 @@ instance Eq Value where
   Nil == Nil = True
   _ == _ = False
 
-
 isTruthy :: Value -> Bool
 isTruthy Nil = False
 isTruthy (LitBoolean b) = b
 isTruthy _ = True
 
 runLoxAction :: LoxAction a -> ProgramState -> IO (Either ShortCircuit a, ProgramState)
-runLoxAction = runStateT . runExceptT 
+runLoxAction = runStateT . runExceptT
 
 loxThrow :: LoxError -> LoxAction a
 loxThrow = throwE . Errored
@@ -68,7 +67,8 @@ loxReturn = throwE . Returned
 
 acceptReturn :: LoxAction a -> LoxAction Value
 acceptReturn action = do
-  catchE (action >> return Nil) handler where
+  catchE (action >> return Nil) handler
+  where
     handler (Returned val) = return val
     handler (Errored err) = loxThrow err
 

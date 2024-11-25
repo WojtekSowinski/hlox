@@ -2,7 +2,7 @@ module StaticAnalysis where
 
 import Control.Monad.State (State, evalState, get, modify, put)
 import Data.List (sortOn)
-import LoxAST (Expression (..), Program, Statement (..))
+import LoxAST (Expression (..), FunctionDef (..), Program, Statement (..))
 import LoxInternals (LoxError)
 import Scope (Identifier)
 
@@ -15,7 +15,17 @@ passes = [recursiveVars, invalidReturns None, doubleDeclarations, errorProductio
 recursiveVars :: Statement -> [LoxError]
 recursiveVars (VarInitialize line name expr) =
   [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]
+recursiveVars (Block statements) = concatMap recursiveVars statements
+recursiveVars (If _ ifTrue ifFalse) =
+  recursiveVars ifTrue ++ recursiveVars ifFalse
+recursiveVars (While _ body) = recursiveVars body
+recursiveVars (FunctionDecl f) = recursiveVarsInFunction f
+recursiveVars (ClassDecl _ methods) = concatMap recursiveVarsInFunction methods
 recursiveVars _ = []
+
+recursiveVarsInFunction :: FunctionDef -> [LoxError]
+recursiveVarsInFunction (FunctionDef _ _ body) = recursiveVars body
+recursiveVarsInFunction _ = []
 
 refersTo :: Expression -> Identifier -> Bool
 refersTo (Variable _ var) name = var == name
@@ -33,7 +43,7 @@ data FunctionType = None | Function
 
 invalidReturns :: FunctionType -> Statement -> [LoxError]
 invalidReturns None (Return line _) = [(line, "Can't return from outside a function.")]
-invalidReturns _ (FunctionDef _ _ body) =
+invalidReturns _ (FunctionDecl (FunctionDef _ _ body)) =
   invalidReturns Function body
 invalidReturns t (If _ trueBranch falseBranch) =
   invalidReturns t trueBranch ++ invalidReturns t falseBranch
@@ -58,17 +68,19 @@ doubleDecls (Block statements) = do
   errors <- concat <$> mapM doubleDecls statements
   put enclosing
   return errors
-doubleDecls (FunctionDef _ _ body) = doubleDecls body
+doubleDecls (FunctionDecl f) = doubleDeclsInFunction f
+doubleDecls (ClassDecl _ methods) = concat <$> mapM doubleDeclsInFunction methods
 doubleDecls (If _ trueBranch falseBranch) =
   (++) <$> doubleDecls trueBranch <*> doubleDecls falseBranch
 doubleDecls (While _ body) = doubleDecls body
 doubleDecls _ = return []
 
+doubleDeclsInFunction :: FunctionDef -> State [Identifier] [LoxError]
+doubleDeclsInFunction (FunctionDef _ _ body) = doubleDecls body
+doubleDeclsInFunction _ = return []
+
 errorProductions :: Statement -> [LoxError]
 errorProductions (CouldNotParse ln err) = [(ln, "Parse error - " ++ err)]
-errorProductions (TooManyParams line) = [(line, "Function can't have more than 255 parameters.")]
-errorProductions (DuplicateParams line) =
-  [(line, "Function definition assigns the same identifier to multiple parameters.")]
 errorProductions (Eval expr) = errProdsInExpr expr
 errorProductions (Print expr) = errProdsInExpr expr
 errorProductions (Return _ (Just expr)) = errProdsInExpr expr
@@ -77,8 +89,15 @@ errorProductions (Block statements) = concatMap errorProductions statements
 errorProductions (If cond ifTrue ifFalse) =
   errProdsInExpr cond ++ errorProductions ifTrue ++ errorProductions ifFalse
 errorProductions (While cond body) = errProdsInExpr cond ++ errorProductions body
-errorProductions (FunctionDef _ _ body) = errorProductions body
+errorProductions (FunctionDecl f) = errProdsInFunction f
+errorProductions (ClassDecl _ methods) = concatMap errProdsInFunction methods
 errorProductions _ = []
+
+errProdsInFunction :: FunctionDef -> [LoxError]
+errProdsInFunction (TooManyParams line) = [(line, "Function can't have more than 255 parameters.")]
+errProdsInFunction (DuplicateParams line) =
+  [(line, "Function definition assigns the same identifier to multiple parameters.")]
+errProdsInFunction (FunctionDef _ _ body) = errorProductions body
 
 errProdsInExpr :: Expression -> [LoxError]
 errProdsInExpr (TooManyArgs line) = [(line, "Function call can't take more than 255 arguments.")]

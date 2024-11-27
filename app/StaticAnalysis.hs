@@ -37,7 +37,9 @@ refersTo (Assign _ left right) name = (left `refersTo` name) || (right `refersTo
 refersTo (Negative _ expr) name = expr `refersTo` name
 refersTo (Not expr) name = expr `refersTo` name
 refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
+refersTo (AccessProperty _ object _) name = object `refersTo` name
 refersTo (TooManyArgs _) _ = False
+refersTo (InvalidAssignmentTarget _) _ = False
 
 data FunctionType = None | Function
 
@@ -101,6 +103,7 @@ errProdsInFunction (FunctionDef _ _ body) = errorProductions body
 
 errProdsInExpr :: Expression -> [LoxError]
 errProdsInExpr (TooManyArgs line) = [(line, "Function call can't take more than 255 arguments.")]
+errProdsInExpr (InvalidAssignmentTarget line) = [(line, "Invalid assignment target.")]
 errProdsInExpr (BinOperation _ left _ right) = errProdsInExpr left ++ errProdsInExpr right
 errProdsInExpr (Negative _ operand) = errProdsInExpr operand
 errProdsInExpr (Not operand) = errProdsInExpr operand
@@ -108,4 +111,5 @@ errProdsInExpr (And left right) = errProdsInExpr left ++ errProdsInExpr right
 errProdsInExpr (Or left right) = errProdsInExpr left ++ errProdsInExpr right
 errProdsInExpr (Assign _ left right) = errProdsInExpr left ++ errProdsInExpr right
 errProdsInExpr (FunctionCall _ f args) = errProdsInExpr f ++ concatMap errProdsInExpr args
+errProdsInExpr (AccessProperty _ object _) = errProdsInExpr object
 errProdsInExpr _ = []

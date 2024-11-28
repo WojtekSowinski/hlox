@@ -8,7 +8,6 @@ import Environment
 import Functions (clock)
 import LoxAST
 import LoxInternals
-import OOP (LoxClass (LoxClass, name, superclass))
 import StaticAnalysis
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
@@ -68,7 +67,7 @@ interpret (If cond trueBranch falseBranch) = do
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
 interpret (FunctionDecl f) = createFunction f
-interpret (ClassDecl name methods) = createClass name methods
+interpret (ClassDecl name super methods) = createClass name super methods
 interpret (Return _ (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
@@ -111,6 +110,7 @@ eval (FunctionCall line funcEx argExs) = do
   setLine line
   case func of
     Function f -> checkArity f args >> call f args
+    Class c -> checkArity c args >> call c args
     _ -> loxThrow ("Can't call " ++ show func ++ " as it is not a function.")
 eval (AccessProperty line ex prop) = do
   operand <- eval ex
@@ -208,5 +208,15 @@ createFunction (FunctionDef name params body) = do
           }
 createFunction _ = undefined
 
-createClass :: Identifier -> [FunctionDef] -> LoxAction ()
-createClass name _ = void $ getLocalRef name $ Function LoxClass {name = name, superclass = Nothing}
+createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
+createClass name super _ = do
+  superclass <- evalSuperclass super
+  void $ getLocalRef name $ Class LoxClass {name = name, superclass = superclass}
+
+evalSuperclass :: Maybe Expression -> LoxAction (Maybe LoxClass)
+evalSuperclass Nothing = return Nothing
+evalSuperclass (Just expr) = do
+  super <- eval expr
+  case super of
+    Class c -> return $ Just c
+    _ -> loxThrow "Superclass must be a class."

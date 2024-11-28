@@ -237,12 +237,13 @@ classDecl = do
   whitespace
   name <- identifier
   whitespace
+  super <- optional $ mchar '<' *> whitespace *> expression <* whitespace
   mchar '{' <|> panic "Expected '{' before class body."
   whitespace
   methods <- funcDef `sepBy` whitespace
   whitespace
   mchar '}' <|> panic "Expected '}' after class body."
-  return $ ClassDecl name methods
+  return $ ClassDecl name super methods
 
 propertyAccess :: Parser (Expression -> Expression)
 propertyAccess = do

@@ -47,7 +47,7 @@ data Statement
   | Return {line :: Int, returnValue :: Maybe Expression}
   | Block {statements :: [Statement]}
   | FunctionDecl FunctionDef
-  | ClassDecl {name :: Identifier, methods :: [FunctionDef]}
+  | ClassDecl {name :: Identifier, super :: Maybe Expression, methods :: [FunctionDef]}
   | NOP
   | CouldNotParse {line :: Int, errMsg :: String}
   deriving (Show)

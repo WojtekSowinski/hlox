@@ -5,8 +5,10 @@ import Control.Monad.Except (ExceptT, runExceptT)
 import Control.Monad.State ( StateT, runStateT, gets )
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
-import Data.IORef (IORef)
+import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import Environment
+import qualified Data.Map as Map
+import Control.Monad.Trans (liftIO)
 
 data ProgramState = ProgramState {env :: Environment (IORef Value), lineNumber :: Int}
 
@@ -24,11 +26,42 @@ class (Show t) => LoxObject t where
   getProperty :: t -> Identifier -> LoxAction Value
   setProperty :: t -> Identifier -> Value -> LoxAction ()
 
+data LoxClass = LoxClass {name :: Identifier, superclass :: Maybe LoxClass}
+
+instance Show LoxClass where
+  show :: LoxClass -> String
+  show c = "<class " ++ name c ++ ">"
+
+instance LoxCallable LoxClass where
+  call :: LoxClass -> [Value] -> LoxAction Value
+  call c _ = do
+    props <- liftIO $ newIORef Map.empty
+    return $ Object LoxInstance {klass = c, properties = props}
+  arity :: LoxClass -> Int
+  arity _ = 0
+
+data LoxInstance = LoxInstance {klass :: LoxClass, properties :: IORef (Map.Map Identifier Value)}
+
+instance Show LoxInstance where
+  show :: LoxInstance -> String
+  show obj = "<instnace of class " ++ name (klass obj) ++ ">"
+
+instance LoxObject LoxInstance where
+  getProperty :: LoxInstance -> Identifier -> LoxAction Value
+  getProperty obj prop = do
+    props <- liftIO $ readIORef $ properties obj
+    case Map.lookup prop props of
+      Just val -> return val
+      Nothing -> loxThrow ("Undefined property '" ++ prop ++ "'.")
+  setProperty :: LoxInstance -> Identifier -> Value -> LoxAction ()
+  setProperty obj prop val = liftIO $ modifyIORef (properties obj) $ Map.insert prop val
+
 data Value
   = LitString String
   | LitNumber Double
   | LitBoolean Bool
   | Nil
+  | Class LoxClass
   | forall t. (LoxObject t) => Object t
   | forall f. (LoxCallable f) => Function f
 
@@ -42,6 +75,7 @@ instance Show Value where
   show Nil = "nil"
   show (Function f) = show f
   show (Object obj) = show obj
+  show (Class c) = show c
 
 instance Eq Value where
   (==) :: Value -> Value -> Bool

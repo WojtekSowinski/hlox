@@ -1,4 +1,4 @@
-module Functions (LoxCallable, clock) where
+module Functions (clock) where
 
 import LoxInternals (LoxAction, LoxCallable (..), Value (LitNumber))
 import Control.Monad.Trans (liftIO)

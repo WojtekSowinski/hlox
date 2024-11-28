@@ -1,24 +1,17 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
-module LoxInterpreter
-  ( LoxAction,
-    ProgramState,
-    exec,
-    initialize,
-    runLoxAction,
-  )
-where
+module LoxInterpreter (exec, initialize) where
 
 import Control.Monad.State
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
+import Environment
 import Functions (clock)
 import LoxAST
 import LoxInternals
-import Environment
+import OOP (LoxClass (LoxClass, name, superclass))
 import StaticAnalysis
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
-import OOP (LoxClass(LoxClass, name, superclass))
 
 initialize :: IO ProgramState
 initialize = do
@@ -27,15 +20,15 @@ initialize = do
 
 define :: Identifier -> Value -> LoxAction (IORef Value)
 define name value = do
-    ref <- liftIO $ newIORef value
-    modify (\s -> s {env = insert name ref (env s)})
-    return ref
+  ref <- liftIO $ newIORef value
+  modify (\s -> s {env = insert name ref (env s)})
+  return ref
 
 enterNewScope :: [(Identifier, Value)] -> LoxAction ()
 enterNewScope dict = do
-    let (names, vals) = unzip dict
-    refs <- mapM (liftIO . newIORef) vals
-    modify (\s -> s {env = initNewScope (zip names refs) (env s)})
+  let (names, vals) = unzip dict
+  refs <- mapM (liftIO . newIORef) vals
+  modify (\s -> s {env = initNewScope (zip names refs) (env s)})
 
 exitScope :: LoxAction ()
 exitScope = modify (\s -> s {env = discardLocal (env s)})
@@ -108,7 +101,10 @@ eval (Variable line varName) = do
   case lookUp varName scope of
     Nothing -> loxThrow ("Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
-eval (Assign _ target ex) = assign target ex
+eval (This _) = do
+  Just ref <- gets (lookUp "this" . env)
+  liftIO $ readIORef ref
+eval (Assign target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
   args <- mapM eval argExs
@@ -213,4 +209,4 @@ createFunction (FunctionDef name params body) = do
 createFunction _ = undefined
 
 createClass :: Identifier -> [FunctionDef] -> LoxAction ()
-createClass name _ = void $ getLocalRef name $ Function LoxClass {name=name, superclass = Nothing}
+createClass name _ = void $ getLocalRef name $ Function LoxClass {name = name, superclass = Nothing}

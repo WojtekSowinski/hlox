@@ -1,62 +1,85 @@
 module StaticAnalysis (errorsIn) where
 
 import Control.Monad.State (State, evalState, get, modify, put)
-import Data.List (sortOn)
+import Environment (Identifier)
 import LoxAST (Expression (..), FunctionDef (..), Program, Statement (..))
 import LoxInternals (LoxError)
-import Environment (Identifier)
 
 errorsIn :: Program -> [LoxError]
-errorsIn program = sortOn fst $ concat [f stmt | f <- passes, stmt <- program]
+errorsIn = concatMap $ errorsInStatement TopLevel
 
-passes :: [Statement -> [LoxError]]
-passes = [recursiveVars, invalidReturns None, doubleDeclarations, errorProductions]
+data Context = TopLevel | Function | Class
 
-recursiveVars :: Statement -> [LoxError]
-recursiveVars (VarInitialize line name expr) =
+errorsInStatement :: Context -> Statement -> [LoxError]
+errorsInStatement _ NOP = []
+errorsInStatement _ (CouldNotParse ln err) = [(ln, "Parse error - " ++ err)]
+errorsInStatement ctx (Eval expr) = errorsInExpression ctx expr
+errorsInStatement ctx (Print expr) = errorsInExpression ctx expr
+errorsInStatement ctx (If cond trueBranch falseBranch) =
+  errorsInExpression ctx cond
+    ++ errorsInStatement ctx trueBranch
+    ++ errorsInStatement ctx falseBranch
+errorsInStatement ctx (While cond body) =
+  errorsInExpression ctx cond ++ errorsInStatement ctx body
+errorsInStatement TopLevel (FunctionDecl f) = errorsInFunction Function f
+errorsInStatement ctx (FunctionDecl f) = errorsInFunction ctx f
+errorsInStatement TopLevel ret@(Return line _) =
+  (line, "Can't return from outside a function.") : errorsInStatement Function ret
+errorsInStatement _ (Return _ Nothing) = []
+errorsInStatement ctx (Return _ (Just expr)) = errorsInExpression ctx expr
+errorsInStatement ctx block@(Block statements) =
+  evalState (doubleDecls block) [] ++ concatMap (errorsInStatement ctx) statements
+errorsInStatement _ (ClassDecl _ methods) = concatMap (errorsInFunction Class) methods
+errorsInStatement ctx (VarInitialize line name expr) =
   [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]
-recursiveVars (Block statements) = concatMap recursiveVars statements
-recursiveVars (If _ ifTrue ifFalse) =
-  recursiveVars ifTrue ++ recursiveVars ifFalse
-recursiveVars (While _ body) = recursiveVars body
-recursiveVars (FunctionDecl f) = recursiveVarsInFunction f
-recursiveVars (ClassDecl _ methods) = concatMap recursiveVarsInFunction methods
-recursiveVars _ = []
+    ++ errorsInExpression ctx expr
 
-recursiveVarsInFunction :: FunctionDef -> [LoxError]
-recursiveVarsInFunction (FunctionDef _ _ body) = recursiveVars body
-recursiveVarsInFunction _ = []
+errorsInFunction :: Context -> FunctionDef -> [LoxError]
+errorsInFunction ctx (FunctionDef _ _ body) = errorsInStatement ctx body
+errorsInFunction _ (TooManyParams line) =
+  [(line, "Function can't have more than 255 parameters.")]
+errorsInFunction _ (DuplicateParams line) =
+  [(line, "Function definition assigns the same identifier to multiple parameters.")]
+
+errorsInExpression :: Context -> Expression -> [LoxError]
+errorsInExpression _ (Literal _) = []
+errorsInExpression _ (Variable _ _) = []
+errorsInExpression _ (TooManyArgs line) =
+  [(line, "Function call can't take more than 255 arguments.")]
+errorsInExpression _ (InvalidAssignmentTarget line) = [(line, "Invalid assignment target.")]
+errorsInExpression ctx (BinOperation _ left _ right) =
+  errorsInExpression ctx left ++ errorsInExpression ctx right
+errorsInExpression ctx (Negative _ operand) = errorsInExpression ctx operand
+errorsInExpression ctx (Not operand) = errorsInExpression ctx operand
+errorsInExpression ctx (And left right) =
+  errorsInExpression ctx left ++ errorsInExpression ctx right
+errorsInExpression ctx (Or left right) =
+  errorsInExpression ctx left ++ errorsInExpression ctx right
+errorsInExpression ctx (Assign left right) =
+  errorsInExpression ctx left ++ errorsInExpression ctx right
+errorsInExpression ctx (FunctionCall _ f args) =
+  errorsInExpression ctx f ++ concatMap (errorsInExpression ctx) args
+errorsInExpression ctx (AccessProperty _ object _) =
+  errorsInExpression ctx object
+errorsInExpression TopLevel (This line) =
+  [(line, "Can't reference 'this' outside of a class definition.")]
+errorsInExpression Function this@(This _) = errorsInExpression TopLevel this
+errorsInExpression Class (This _) = []
 
 refersTo :: Expression -> Identifier -> Bool
 refersTo (Variable _ var) name = var == name
 refersTo (Literal _) _ = False
+refersTo (This _) _ = False
 refersTo (BinOperation _ left _ right) name = (left `refersTo` name) || (right `refersTo` name)
 refersTo (And left right) name = (left `refersTo` name) || (right `refersTo` name)
 refersTo (Or left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Assign _ left right) name = (left `refersTo` name) || (right `refersTo` name)
+refersTo (Assign left right) name = (left `refersTo` name) || (right `refersTo` name)
 refersTo (Negative _ expr) name = expr `refersTo` name
 refersTo (Not expr) name = expr `refersTo` name
 refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
 refersTo (AccessProperty _ object _) name = object `refersTo` name
 refersTo (TooManyArgs _) _ = False
 refersTo (InvalidAssignmentTarget _) _ = False
-
-data FunctionType = None | Function
-
-invalidReturns :: FunctionType -> Statement -> [LoxError]
-invalidReturns None (Return line _) = [(line, "Can't return from outside a function.")]
-invalidReturns _ (FunctionDecl (FunctionDef _ _ body)) =
-  invalidReturns Function body
-invalidReturns t (If _ trueBranch falseBranch) =
-  invalidReturns t trueBranch ++ invalidReturns t falseBranch
-invalidReturns t (While _ body) =
-  invalidReturns t body
-invalidReturns t (Block statements) =
-  concatMap (invalidReturns t) statements
-invalidReturns _ _ = []
-
-doubleDeclarations :: Statement -> [LoxError]
-doubleDeclarations stmt = evalState (doubleDecls stmt) []
 
 doubleDecls :: Statement -> State [Identifier] [LoxError]
 doubleDecls (VarInitialize line name _) = do
@@ -70,46 +93,4 @@ doubleDecls (Block statements) = do
   errors <- concat <$> mapM doubleDecls statements
   put enclosing
   return errors
-doubleDecls (FunctionDecl f) = doubleDeclsInFunction f
-doubleDecls (ClassDecl _ methods) = concat <$> mapM doubleDeclsInFunction methods
-doubleDecls (If _ trueBranch falseBranch) =
-  (++) <$> doubleDecls trueBranch <*> doubleDecls falseBranch
-doubleDecls (While _ body) = doubleDecls body
 doubleDecls _ = return []
-
-doubleDeclsInFunction :: FunctionDef -> State [Identifier] [LoxError]
-doubleDeclsInFunction (FunctionDef _ _ body) = doubleDecls body
-doubleDeclsInFunction _ = return []
-
-errorProductions :: Statement -> [LoxError]
-errorProductions (CouldNotParse ln err) = [(ln, "Parse error - " ++ err)]
-errorProductions (Eval expr) = errProdsInExpr expr
-errorProductions (Print expr) = errProdsInExpr expr
-errorProductions (Return _ (Just expr)) = errProdsInExpr expr
-errorProductions (VarInitialize _ _ expr) = errProdsInExpr expr
-errorProductions (Block statements) = concatMap errorProductions statements
-errorProductions (If cond ifTrue ifFalse) =
-  errProdsInExpr cond ++ errorProductions ifTrue ++ errorProductions ifFalse
-errorProductions (While cond body) = errProdsInExpr cond ++ errorProductions body
-errorProductions (FunctionDecl f) = errProdsInFunction f
-errorProductions (ClassDecl _ methods) = concatMap errProdsInFunction methods
-errorProductions _ = []
-
-errProdsInFunction :: FunctionDef -> [LoxError]
-errProdsInFunction (TooManyParams line) = [(line, "Function can't have more than 255 parameters.")]
-errProdsInFunction (DuplicateParams line) =
-  [(line, "Function definition assigns the same identifier to multiple parameters.")]
-errProdsInFunction (FunctionDef _ _ body) = errorProductions body
-
-errProdsInExpr :: Expression -> [LoxError]
-errProdsInExpr (TooManyArgs line) = [(line, "Function call can't take more than 255 arguments.")]
-errProdsInExpr (InvalidAssignmentTarget line) = [(line, "Invalid assignment target.")]
-errProdsInExpr (BinOperation _ left _ right) = errProdsInExpr left ++ errProdsInExpr right
-errProdsInExpr (Negative _ operand) = errProdsInExpr operand
-errProdsInExpr (Not operand) = errProdsInExpr operand
-errProdsInExpr (And left right) = errProdsInExpr left ++ errProdsInExpr right
-errProdsInExpr (Or left right) = errProdsInExpr left ++ errProdsInExpr right
-errProdsInExpr (Assign _ left right) = errProdsInExpr left ++ errProdsInExpr right
-errProdsInExpr (FunctionCall _ f args) = errProdsInExpr f ++ concatMap errProdsInExpr args
-errProdsInExpr (AccessProperty _ object _) = errProdsInExpr object
-errProdsInExpr _ = []

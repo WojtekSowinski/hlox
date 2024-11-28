@@ -1,12 +1,12 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
--- module LoxParser (program, repl) where
-module LoxParser where
+module LoxParser (program, repl) where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
+import Data.Functor (($>))
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
 import Environment (Identifier)
@@ -61,7 +61,7 @@ reservedKeywords =
   ]
 
 boolean :: Parser Bool
-boolean = (keyword "true" >> return True) <|> (keyword "false" >> return False)
+boolean = (keyword "true" $> True) <|> (keyword "false" $> False)
 
 number :: Parser Double
 number = do
@@ -111,7 +111,7 @@ expression = whitespace *> assignment <* whitespace
         Nothing -> return target
         Just ex ->
           if isValidLValue target
-            then return $ Assign line target ex
+            then return $ Assign target ex
             else return $ InvalidAssignmentTarget line
 
     disjunction :: Parser Expression = do
@@ -161,6 +161,7 @@ expression = whitespace *> assignment <* whitespace
     primaryExp :: Parser Expression =
       whitespace
         *> ( Literal <$> literal
+               <|> (This <$> getLineNr <* match "this")
                <|> Variable <$> getLineNr <*> identifier
                <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
            )
@@ -245,9 +246,9 @@ classDecl = do
 
 propertyAccess :: Parser (Expression -> Expression)
 propertyAccess = do
-    prop <- mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
-    line <- getLineNr
-    return (\obj -> AccessProperty line obj prop)
+  prop <- mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
+  line <- getLineNr
+  return (\obj -> AccessProperty line obj prop)
 
 arguments :: Parser [Expression]
 arguments = do
@@ -260,11 +261,11 @@ arguments = do
 
 functionCall :: Parser (Expression -> Expression)
 functionCall = do
-    line <- getLineNr
-    args <- arguments
-    if length args > 255
-        then return $ const $ TooManyArgs line
-        else return (\f -> FunctionCall line f args)
+  line <- getLineNr
+  args <- arguments
+  if length args > 255
+    then return $ const $ TooManyArgs line
+    else return (\f -> FunctionCall line f args)
 
 parameters :: Parser [Identifier]
 parameters = do

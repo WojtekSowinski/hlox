@@ -2,13 +2,13 @@ module LoxInternals where
 
 import Control.Monad (when)
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.State (StateT, runStateT)
+import Control.Monad.State ( StateT, runStateT, gets )
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
 import Data.IORef (IORef)
-import Scope
+import Environment
 
-type ProgramState = Scope (IORef Value)
+data ProgramState = ProgramState {env :: Environment (IORef Value), lineNumber :: Int}
 
 type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
 
@@ -21,7 +21,7 @@ class (Show f) => LoxCallable f where
   arity :: f -> Int
 
 class (Show t) => LoxObject t where
-  getProperty :: t -> Identifier -> LoxAction (Maybe Value)
+  getProperty :: t -> Identifier -> LoxAction Value
   setProperty :: t -> Identifier -> Value -> LoxAction ()
 
 data Value
@@ -59,8 +59,10 @@ isTruthy _ = True
 runLoxAction :: LoxAction a -> ProgramState -> IO (Either ShortCircuit a, ProgramState)
 runLoxAction = runStateT . runExceptT
 
-loxThrow :: LoxError -> LoxAction a
-loxThrow = throwE . Errored
+loxThrow :: String -> LoxAction a
+loxThrow errMsg = do
+    line <- gets lineNumber
+    throwE $ Errored (line, errMsg)
 
 loxCatch :: LoxAction a -> (LoxError -> LoxAction a) -> LoxAction a
 loxCatch action handler = catchE action handler'
@@ -76,7 +78,7 @@ acceptReturn action = do
   catchE (action >> return Nil) handler
   where
     handler (Returned val) = return val
-    handler (Errored err) = loxThrow err
+    handler err = throwE err
 
 whileM_ :: (Monad m) => m Bool -> m a -> m ()
 whileM_ mb ma = do

@@ -1,11 +1,11 @@
 module OOP where
 
-import Data.Map qualified as Map
-import Functions (LoxCallable)
-import LoxInternals (LoxAction, LoxCallable (..), LoxObject (..), Value)
-import Scope (Identifier)
-import Data.IORef (IORef, modifyIORef)
 import Control.Monad.Trans (liftIO)
+import Data.IORef (IORef, modifyIORef, readIORef)
+import Data.Map qualified as Map
+import Environment (Identifier)
+import Functions (LoxCallable)
+import LoxInternals (LoxAction, LoxCallable (..), LoxObject (..), Value, loxThrow)
 
 data LoxClass = LoxClass {name :: Identifier, superclass :: LoxClass}
 
@@ -26,7 +26,11 @@ instance Show LoxInstance where
   show obj = "<instnace of class " ++ name (klass obj) ++ ">"
 
 instance LoxObject LoxInstance where
-  getProperty :: LoxInstance -> Identifier -> LoxAction (Maybe Value)
-  getProperty obj prop = Map.lookup prop (properties obj)
+  getProperty :: LoxInstance -> Identifier -> LoxAction Value
+  getProperty obj prop = do
+    props <- liftIO $ readIORef $ properties obj
+    case Map.lookup prop props of
+      Just val -> return val
+      Nothing -> loxThrow ("Undefined property '" ++ prop ++ "'.")
   setProperty :: LoxInstance -> Identifier -> Value -> LoxAction ()
   setProperty obj prop val = liftIO $ modifyIORef (properties obj) $ Map.insert prop val

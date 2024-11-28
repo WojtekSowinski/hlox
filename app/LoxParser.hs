@@ -5,14 +5,14 @@
 module LoxParser where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
-import Control.Monad (foldM, guard, mfilter, void)
+import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
-import LoxAST
-import LoxInternals
-import ParserCombinators
 import Environment (Identifier)
+import LoxAST
+import LoxInternals (Value (..))
+import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
 
 whitespace :: Parser String
@@ -151,24 +151,12 @@ expression = whitespace *> assignment <* whitespace
     unaryExp :: Parser Expression =
       mchar '!' *> (Not <$> unaryExp)
         <|> mchar '-' *> (Negative <$> getLineNr <*> unaryExp)
-        <|> functionCall
+        <|> call
 
-    functionCall :: Parser Expression = do
-      func <- primaryExp
-      calls <- many ((,) <$> getLineNr <*> ((Left <$> propertyAccess) <|> (Right <$> arguments)) <* whitespace)
-      foldM
-        ( \f (line, call) ->
-            case call of
-              (Left prop) -> return $ AccessProperty line func prop
-              (Right args) ->
-                if length args > 255
-                  then
-                    return $ TooManyArgs line
-                  else
-                    return $ FunctionCall line f args
-        )
-        func
-        calls
+    call :: Parser Expression = do
+      expr <- primaryExp
+      modifiers <- many ((propertyAccess <|> functionCall) <* whitespace)
+      return $ foldl' (\x f -> f x) expr modifiers
 
     primaryExp :: Parser Expression =
       whitespace
@@ -255,8 +243,11 @@ classDecl = do
   mchar '}' <|> panic "Expected '}' after class body."
   return $ ClassDecl name methods
 
-propertyAccess :: Parser Identifier
-propertyAccess = mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
+propertyAccess :: Parser (Expression -> Expression)
+propertyAccess = do
+    prop <- mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
+    line <- getLineNr
+    return (\obj -> AccessProperty line obj prop)
 
 arguments :: Parser [Expression]
 arguments = do
@@ -266,6 +257,14 @@ arguments = do
   whitespace
   mchar ')' <|> panic "Missing ')' after argument list."
   return args
+
+functionCall :: Parser (Expression -> Expression)
+functionCall = do
+    line <- getLineNr
+    args <- arguments
+    if length args > 255
+        then return $ const $ TooManyArgs line
+        else return (\f -> FunctionCall line f args)
 
 parameters :: Parser [Identifier]
 parameters = do

@@ -1,3 +1,5 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module LoxInterpreter
   ( LoxAction,
     ProgramState,
@@ -13,9 +15,10 @@ import Functions (clock)
 import LoxAST
 import LoxInternals
 import Environment
-import StaticAnalysis (errorsIn)
+import StaticAnalysis
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
+import OOP (LoxClass(LoxClass, name, superclass))
 
 initialize :: IO ProgramState
 initialize = do
@@ -161,7 +164,7 @@ assign (AccessProperty line objExpr prop) ex = do
   object <- eval objExpr
   setLine line
   case object of
-    Object obj -> (setProperty obj prop <$> eval ex) >> return object
+    Object obj -> (setProperty obj prop =<< eval ex) >> return object
     _ -> loxThrow ("Can't set properties on " ++ show object ++ " as it is not an object.")
 assign _ _ = undefined
 
@@ -210,4 +213,4 @@ createFunction (FunctionDef name params body) = do
 createFunction _ = undefined
 
 createClass :: Identifier -> [FunctionDef] -> LoxAction ()
-createClass = undefined
+createClass name _ = void $ getLocalRef name $ Function LoxClass {name=name, superclass = Nothing}

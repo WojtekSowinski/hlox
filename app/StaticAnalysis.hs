@@ -8,7 +8,8 @@ import LoxInternals (LoxError)
 errorsIn :: Program -> [LoxError]
 errorsIn = concatMap $ errorsInStatement TopLevel
 
-data Context = TopLevel | Function | Method | Initializer
+data Context = TopLevel | Function | Method ClassType | Initializer ClassType
+data ClassType = BaseClass | SubClass
 
 errorsInStatement :: Context -> Statement -> [LoxError]
 errorsInStatement _ NOP =
@@ -34,18 +35,18 @@ errorsInStatement TopLevel (Return line expr) =
     : maybe [] (errorsInExpression TopLevel) expr
 errorsInStatement _ (Return _ Nothing) =
   []
-errorsInStatement Initializer (Return line (Just expr)) =
+errorsInStatement ctx@(Initializer _) (Return line (Just expr)) =
   (line, "Can't return a value from an initializer.")
-    : errorsInExpression Initializer expr
+    : errorsInExpression ctx expr
 errorsInStatement ctx (Return _ (Just expr)) =
   errorsInExpression ctx expr
 errorsInStatement ctx block@(Block statements) =
   evalState (doubleDeclarations block) []
     ++ concatMap (errorsInStatement ctx) statements
 errorsInStatement ctx (ClassDecl _ _ super methods) =
-  maybe [] (errorsInExpression ctx) super
-    ++ doubleMethods [] methods
-    ++ concatMap (errorsInFunction Method) methods
+  case super of
+    Nothing -> errorsInClass BaseClass methods
+    Just expr -> errorsInExpression ctx expr ++ errorsInClass SubClass methods
 errorsInStatement ctx (VarInitialize line name expr) =
   [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]
     ++ errorsInExpression ctx expr
@@ -59,10 +60,6 @@ errorsInFunction _ (DuplicateParams line) =
   [(line, "Function definition assigns the same identifier to multiple parameters.")]
 
 errorsInExpression :: Context -> Expression -> [LoxError]
-errorsInExpression _ (Literal _) =
-  []
-errorsInExpression _ (Variable _ _) =
-  []
 errorsInExpression _ (TooManyArgs line) =
   [(line, "Function call can't take more than 255 arguments.")]
 errorsInExpression _ (InvalidAssignmentTarget line) =
@@ -87,7 +84,15 @@ errorsInExpression TopLevel (This line) =
   [(line, "Can't reference 'this' outside of a class definition.")]
 errorsInExpression Function (This line) =
   [(line, "Can't reference 'this' outside of a class definition.")]
-errorsInExpression _ (This _) = []
+errorsInExpression (Initializer classType) super@(Super _ _) =
+  errorsInExpression (Method classType) super
+errorsInExpression (Method BaseClass) (Super line _) =
+  [(line, "Can't use 'super' in a class with no superclass")]
+errorsInExpression TopLevel (Super line _) =
+  [(line, "Can't use 'super' outside of a class.")]
+errorsInExpression Function (Super line _) =
+  [(line, "Can't use 'super' outside of a class.")]
+errorsInExpression _ _ = []
 
 refersTo :: Expression -> Identifier -> Bool
 refersTo (Variable _ var) name =
@@ -124,11 +129,18 @@ doubleDeclarations (Block statements) = do
   return errors
 doubleDeclarations _ = return []
 
-doubleMethods :: [Identifier] -> [FunctionDef] -> [LoxError]
-doubleMethods _ [] =
-  []
-doubleMethods found ((FunctionDef line name _ _) : methods) =
-  [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
-    ++ doubleMethods (name : found) methods
-doubleMethods found (_ : methods) =
-  doubleMethods found methods
+errorsInClass :: ClassType -> [FunctionDef] -> [LoxError]
+errorsInClass classType = helper [] where
+  helper :: [Identifier] -> [FunctionDef] -> [LoxError]
+  helper _ [] =
+    []
+  helper found (def@(FunctionDef line name _ _) : ms) =
+    [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
+      ++ errorsInFunction (chooseContext name) def
+      ++ helper (name : found) ms
+  helper found (def : ms) =
+    errorsInFunction (chooseContext "foo") def
+      ++ helper found ms
+  chooseContext :: Identifier -> Context
+  chooseContext name = (if name == "init" then Initializer else Method) classType
+

@@ -8,50 +8,71 @@ import LoxInternals (LoxError)
 errorsIn :: Program -> [LoxError]
 errorsIn = concatMap $ errorsInStatement TopLevel
 
-data Context = TopLevel | Function | Class
+data Context = TopLevel | Function | Method | Initializer
 
 errorsInStatement :: Context -> Statement -> [LoxError]
-errorsInStatement _ NOP = []
-errorsInStatement _ (CouldNotParse ln err) = [(ln, "Parse error - " ++ err)]
-errorsInStatement ctx (Eval expr) = errorsInExpression ctx expr
-errorsInStatement ctx (Print expr) = errorsInExpression ctx expr
+errorsInStatement _ NOP =
+  []
+errorsInStatement _ (CouldNotParse ln err) =
+  [(ln, "Parse error - " ++ err)]
+errorsInStatement ctx (Eval expr) =
+  errorsInExpression ctx expr
+errorsInStatement ctx (Print expr) =
+  errorsInExpression ctx expr
 errorsInStatement ctx (If cond trueBranch falseBranch) =
   errorsInExpression ctx cond
     ++ errorsInStatement ctx trueBranch
     ++ errorsInStatement ctx falseBranch
 errorsInStatement ctx (While cond body) =
   errorsInExpression ctx cond ++ errorsInStatement ctx body
-errorsInStatement TopLevel (FunctionDecl f) = errorsInFunction Function f
-errorsInStatement ctx (FunctionDecl f) = errorsInFunction ctx f
-errorsInStatement TopLevel ret@(Return line _) =
-  (line, "Can't return from outside a function.") : errorsInStatement Function ret
-errorsInStatement _ (Return _ Nothing) = []
-errorsInStatement ctx (Return _ (Just expr)) = errorsInExpression ctx expr
+errorsInStatement TopLevel (FunctionDecl f) =
+  errorsInFunction Function f
+errorsInStatement ctx (FunctionDecl f) =
+  errorsInFunction ctx f
+errorsInStatement TopLevel (Return line expr) =
+  (line, "Can't return from outside a function.")
+    : maybe [] (errorsInExpression TopLevel) expr
+errorsInStatement _ (Return _ Nothing) =
+  []
+errorsInStatement Initializer (Return line (Just expr)) =
+  (line, "Can't return a value from an initializer.")
+    : errorsInExpression Initializer expr
+errorsInStatement ctx (Return _ (Just expr)) =
+  errorsInExpression ctx expr
 errorsInStatement ctx block@(Block statements) =
-  evalState (doubleDecls block) [] ++ concatMap (errorsInStatement ctx) statements
+  evalState (doubleDeclarations block) []
+    ++ concatMap (errorsInStatement ctx) statements
 errorsInStatement ctx (ClassDecl _ _ super methods) =
-    maybe [] (errorsInExpression ctx) super ++ concatMap (errorsInFunction Class) methods
+  maybe [] (errorsInExpression ctx) super
+    ++ doubleMethods [] methods
+    ++ concatMap (errorsInFunction Method) methods
 errorsInStatement ctx (VarInitialize line name expr) =
   [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]
     ++ errorsInExpression ctx expr
 
 errorsInFunction :: Context -> FunctionDef -> [LoxError]
-errorsInFunction ctx (FunctionDef _ _ body) = errorsInStatement ctx body
+errorsInFunction ctx (FunctionDef _ _ _ body) =
+  errorsInStatement ctx body
 errorsInFunction _ (TooManyParams line) =
   [(line, "Function can't have more than 255 parameters.")]
 errorsInFunction _ (DuplicateParams line) =
   [(line, "Function definition assigns the same identifier to multiple parameters.")]
 
 errorsInExpression :: Context -> Expression -> [LoxError]
-errorsInExpression _ (Literal _) = []
-errorsInExpression _ (Variable _ _) = []
+errorsInExpression _ (Literal _) =
+  []
+errorsInExpression _ (Variable _ _) =
+  []
 errorsInExpression _ (TooManyArgs line) =
   [(line, "Function call can't take more than 255 arguments.")]
-errorsInExpression _ (InvalidAssignmentTarget line) = [(line, "Invalid assignment target.")]
+errorsInExpression _ (InvalidAssignmentTarget line) =
+  [(line, "Invalid assignment target.")]
+errorsInExpression ctx (Negative _ operand) =
+  errorsInExpression ctx operand
+errorsInExpression ctx (Not operand) =
+  errorsInExpression ctx operand
 errorsInExpression ctx (BinOperation _ left _ right) =
   errorsInExpression ctx left ++ errorsInExpression ctx right
-errorsInExpression ctx (Negative _ operand) = errorsInExpression ctx operand
-errorsInExpression ctx (Not operand) = errorsInExpression ctx operand
 errorsInExpression ctx (And left right) =
   errorsInExpression ctx left ++ errorsInExpression ctx right
 errorsInExpression ctx (Or left right) =
@@ -64,34 +85,50 @@ errorsInExpression ctx (AccessProperty _ object _) =
   errorsInExpression ctx object
 errorsInExpression TopLevel (This line) =
   [(line, "Can't reference 'this' outside of a class definition.")]
-errorsInExpression Function this@(This _) = errorsInExpression TopLevel this
-errorsInExpression Class (This _) = []
+errorsInExpression Function (This line) =
+  [(line, "Can't reference 'this' outside of a class definition.")]
+errorsInExpression _ (This _) = []
 
 refersTo :: Expression -> Identifier -> Bool
-refersTo (Variable _ var) name = var == name
-refersTo (Literal _) _ = False
-refersTo (This _) _ = False
-refersTo (BinOperation _ left _ right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (And left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Or left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Assign left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Negative _ expr) name = expr `refersTo` name
-refersTo (Not expr) name = expr `refersTo` name
-refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
-refersTo (AccessProperty _ object _) name = object `refersTo` name
-refersTo (TooManyArgs _) _ = False
-refersTo (InvalidAssignmentTarget _) _ = False
+refersTo (Variable _ var) name =
+  var == name
+refersTo (BinOperation _ left _ right) name =
+  (left `refersTo` name) || (right `refersTo` name)
+refersTo (And left right) name =
+  (left `refersTo` name) || (right `refersTo` name)
+refersTo (Or left right) name =
+  (left `refersTo` name) || (right `refersTo` name)
+refersTo (Assign left right) name =
+  (left `refersTo` name) || (right `refersTo` name)
+refersTo (Negative _ expr) name =
+  expr `refersTo` name
+refersTo (Not expr) name =
+  expr `refersTo` name
+refersTo (FunctionCall _ fn args) name =
+  any (`refersTo` name) (fn : args)
+refersTo (AccessProperty _ object _) name =
+  object `refersTo` name
+refersTo _ _ = False
 
-doubleDecls :: Statement -> State [Identifier] [LoxError]
-doubleDecls (VarInitialize line name _) = do
+doubleDeclarations :: Statement -> State [Identifier] [LoxError]
+doubleDeclarations (VarInitialize line name _) = do
   found <- get
   if name `elem` found
     then return [(line, "Variable " ++ name ++ " declared multiple times in the same scope.")]
     else modify (name :) >> return []
-doubleDecls (Block statements) = do
+doubleDeclarations (Block statements) = do
   enclosing <- get
   put []
-  errors <- concat <$> mapM doubleDecls statements
+  errors <- concat <$> mapM doubleDeclarations statements
   put enclosing
   return errors
-doubleDecls _ = return []
+doubleDeclarations _ = return []
+
+doubleMethods :: [Identifier] -> [FunctionDef] -> [LoxError]
+doubleMethods _ [] =
+  []
+doubleMethods found ((FunctionDef line name _ _) : methods) =
+  [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
+    ++ doubleMethods (name : found) methods
+doubleMethods found (_ : methods) =
+  doubleMethods found methods

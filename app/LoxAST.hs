@@ -61,7 +61,7 @@ data Statement
   deriving (Show)
 
 data FunctionDef
-  = FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
+  = FunctionDef {line :: Int, name :: Identifier, params :: [Identifier], body :: Statement}
   | TooManyParams {line :: Int}
   | DuplicateParams {line :: Int}
   deriving (Show)

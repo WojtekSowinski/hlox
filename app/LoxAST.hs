@@ -11,7 +11,7 @@ module LoxAST
 where
 
 import Environment (Identifier)
-import LoxInternals (Value)
+import LoxInternals (Value, LoxFunction (fnBody))
 import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
@@ -62,9 +62,9 @@ data Statement
   deriving (Show)
 
 data FunctionDef
-  = FunctionDef {line :: Int, name :: Identifier, params :: [Identifier], body :: Statement}
-  | TooManyParams {line :: Int}
-  | DuplicateParams {line :: Int}
+  = FunctionDef {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
+  | TooManyParams {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
+  | DuplicateParams {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
   deriving (Show)
 
 isValidLValue :: Expression -> Bool

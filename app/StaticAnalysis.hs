@@ -139,9 +139,9 @@ errorsInClass classType = helper []
     helper _ [] =
       []
     helper found (m : ms) =
-      let (line, name) = (fnLine m, fnName m) in
-        [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
-          ++ errorsInFunction (chooseContext name) m
-          ++ helper found ms
+      let (line, name) = (fnLine m, fnName m)
+       in [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
+            ++ errorsInFunction (chooseContext name) m
+            ++ helper found ms
     chooseContext :: Identifier -> Context
     chooseContext name = (if name == "init" then Initializer else Method) classType

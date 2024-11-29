@@ -15,25 +15,12 @@ import Prelude hiding (EQ, GT, LT)
 initialize :: IO ProgramState
 initialize = do
   clockRef <- newIORef $ Function clock
-  return $ ProgramState {lineNumber = 1, env = fromList [("clock", clockRef)]}
-
-define :: Identifier -> Value -> LoxAction (IORef Value)
-define name value = do
-  ref <- liftIO $ newIORef value
-  modify (\s -> s {env = insert name ref (env s)})
-  return ref
-
-enterNewScope :: [(Identifier, Value)] -> LoxAction ()
-enterNewScope dict = do
-  let (names, vals) = unzip dict
-  refs <- mapM (liftIO . newIORef) vals
-  modify (\s -> s {env = initNewScope (zip names refs) (env s)})
-
-exitScope :: LoxAction ()
-exitScope = modify (\s -> s {env = discardLocal (env s)})
-
-setLine :: Int -> LoxAction ()
-setLine n = modify (\s -> s {lineNumber = n})
+  return $
+    ProgramState
+      { lineNumber = 1,
+        env = fromList [("clock", clockRef)],
+        this = undefined
+      }
 
 exec :: Program -> LoxAction ExitCode
 exec program = do
@@ -66,13 +53,19 @@ interpret (If cond trueBranch falseBranch) = do
   condVal <- eval cond
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
-interpret (FunctionDecl f) = createFunction f
-interpret (ClassDecl name super methods) = createClass name super methods
+interpret (FunctionDecl f) = void $ createFunction f
+interpret (ClassDecl line name super methods) =
+  setLine line >> createClass name super methods
 interpret (Return _ (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
 interpret (Return _ Nothing) = loxReturn Nil
 interpret (CouldNotParse _ _) = undefined
+
+whileM_ :: (Monad m) => m Bool -> m a -> m ()
+whileM_ mb ma = do
+  b <- mb
+  when b $ ma >> whileM_ mb ma
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
@@ -100,9 +93,7 @@ eval (Variable line varName) = do
   case lookUp varName scope of
     Nothing -> loxThrow ("Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
-eval (This _) = do
-  Just ref <- gets (lookUp "this" . env)
-  liftIO $ readIORef ref
+eval (This _) = gets this
 eval (Assign target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
@@ -164,28 +155,6 @@ assign (AccessProperty line objExpr prop) ex = do
     _ -> loxThrow ("Can't set properties on " ++ show object ++ " as it is not an object.")
 assign _ _ = undefined
 
-data LoxFunction = LoxFunction
-  { fnName :: Identifier,
-    fnParams :: [Identifier],
-    fnBody :: Statement,
-    closure :: ProgramState
-  }
-
-instance Show LoxFunction where
-  show f = "<fn " ++ fnName f ++ ">"
-
-instance LoxCallable LoxFunction where
-  call :: LoxFunction -> [Value] -> LoxAction Value
-  call f args = do
-    oldState <- get
-    put $ closure f
-    enterNewScope $ zip (fnParams f) args
-    returnVal <- acceptReturn $ interpret $ fnBody f
-    put oldState
-    return returnVal
-  arity :: LoxFunction -> Int
-  arity = length . fnParams
-
 getLocalRef :: Identifier -> Value -> LoxAction (IORef Value)
 getLocalRef name value = do
   oldState <- gets env
@@ -193,25 +162,29 @@ getLocalRef name value = do
     Just ref -> return ref
     Nothing -> define name value
 
-createFunction :: FunctionDef -> LoxAction ()
+createFunction :: FunctionDef -> LoxAction LoxFunction
 createFunction (FunctionDef name params body) = do
   funcRef <- getLocalRef name undefined
   currentState <- get
-  liftIO $
-    writeIORef funcRef $
-      Function
+  let f =
         LoxFunction
           { fnName = name,
             fnParams = params,
-            fnBody = body,
+            fnBody = interpret body,
             closure = currentState
           }
+  liftIO $ writeIORef funcRef $ Function f
+  return f
 createFunction _ = undefined
 
 createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
-createClass name super _ = do
+createClass name super methodDefs = do
   superclass <- evalSuperclass super
-  void $ getLocalRef name $ Class LoxClass {name = name, superclass = superclass}
+  enterNewScope $ map (\(FunctionDef {name = f}) -> (f, undefined)) methodDefs
+  methods <- mapM (\def@(FunctionDef {name = f}) -> (f,) <$> createFunction def) methodDefs
+  exitScope
+  ref <- getLocalRef name undefined
+  liftIO $ writeIORef ref $ Class $ LoxClass name superclass methods
 
 evalSuperclass :: Maybe Expression -> LoxAction (Maybe LoxClass)
 evalSuperclass Nothing = return Nothing

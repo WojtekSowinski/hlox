@@ -235,6 +235,7 @@ classDecl :: Parser Statement
 classDecl = do
   keyword "class"
   whitespace
+  line <- getLineNr
   name <- identifier
   whitespace
   super <- optional $ mchar '<' *> whitespace *> expression <* whitespace
@@ -243,7 +244,7 @@ classDecl = do
   methods <- funcDef `sepBy` whitespace
   whitespace
   mchar '}' <|> panic "Expected '}' after class body."
-  return $ ClassDecl name super methods
+  return $ ClassDecl line name super methods
 
 propertyAccess :: Parser (Expression -> Expression)
 propertyAccess = do

@@ -29,7 +29,7 @@ errorsInStatement _ (Return _ Nothing) = []
 errorsInStatement ctx (Return _ (Just expr)) = errorsInExpression ctx expr
 errorsInStatement ctx block@(Block statements) =
   evalState (doubleDecls block) [] ++ concatMap (errorsInStatement ctx) statements
-errorsInStatement ctx (ClassDecl _ super methods) =
+errorsInStatement ctx (ClassDecl _ _ super methods) =
     maybe [] (errorsInExpression ctx) super ++ concatMap (errorsInFunction Class) methods
 errorsInStatement ctx (VarInitialize line name expr) =
   [(line, "Declaration of variable " ++ name ++ " refers to itself.") | expr `refersTo` name]

@@ -12,6 +12,7 @@ where
 
 import Environment (Identifier)
 import LoxInternals (Value)
+import ParserCombinators (Location)
 import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
@@ -31,40 +32,36 @@ instance Show BinOp where
 type Program = [Statement]
 
 data Expression
-  = Literal {value :: Value}
-  | Variable {line :: Int, name :: Identifier}
-  | This {line :: Int}
-  | Super {line :: Int, property :: Identifier}
-  | BinOperation {line :: Int, left :: Expression, operator :: BinOp, right :: Expression}
-  | Negative {line :: Int, operand :: Expression}
-  | Not {operand :: Expression}
-  | And {left :: Expression, right :: Expression}
-  | Or {left :: Expression, right :: Expression}
-  | Assign {left :: Expression, right :: Expression}
-  | FunctionCall {line :: Int, function :: Expression, args :: [Expression]}
-  | AccessProperty {line :: Int, object :: Expression, property :: Identifier}
-  | TooManyArgs {line :: Int}
-  | InvalidAssignmentTarget {line :: Int}
+  = Literal Value
+  | Variable Location Identifier
+  | This Location
+  | Super Location Identifier
+  | BinOperation Location Expression BinOp Expression
+  | Negative Location Expression
+  | Not Expression
+  | And Expression Expression
+  | Or Expression Expression
+  | Assign Location Expression Expression
+  | FunctionCall Location Expression [Expression]
+  | AccessProperty Location Expression Identifier
   deriving (Show)
 
 data Statement
-  = Eval {expr :: Expression}
-  | Print {expr :: Expression}
-  | VarInitialize {line :: Int, name :: Identifier, value :: Expression}
-  | If {cond :: Expression, trueBranch :: Statement, falseBranch :: Statement}
-  | While {cond :: Expression, body :: Statement}
-  | Return {line :: Int, returnValue :: Maybe Expression}
-  | Block {statements :: [Statement]}
+  = Eval Expression
+  | Print Expression
+  | VarInitialize Location Identifier Expression
+  | If Expression Statement Statement
+  | While Expression Statement
+  | Return Location (Maybe Expression)
+  | Block [Statement]
   | FunctionDecl FunctionDef
-  | ClassDecl {line :: Int, name :: Identifier, superclass :: Maybe Expression, methods :: [FunctionDef]}
+  | ClassDecl Location Identifier (Maybe Expression) [FunctionDef]
   | NOP
-  | CouldNotParse {line :: Int, errMsg :: String}
+  | CouldNotParse Location String
   deriving (Show)
 
 data FunctionDef
-  = FunctionDef {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
-  | TooManyParams {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
-  | DuplicateParams {fnLine :: Int, fnName :: Identifier, params :: [Identifier], fnBody :: Statement}
+  = FunctionDef {line :: Location, name :: Identifier, params :: [Identifier], body :: Statement}
   deriving (Show)
 
 isValidLValue :: Expression -> Bool

@@ -100,6 +100,12 @@ operatorDict =
 binaryOperator :: [String] -> Parser BinOp
 binaryOperator ops = fromJust . flip lookup operatorDict <$> choice (map match ops)
 
+binaryOpChain :: [String] -> Parser Expression -> Parser Expression
+binaryOpChain operators operandParser = do
+  firstOperand <- operandParser
+  operands <- many $ (,,) <$> getLineNr <*> binaryOperator operators <*> operandParser
+  return $ foldl' (\l (ln, op, r) -> BinOperation ln l op r) firstOperand operands
+
 expression :: Parser Expression
 expression = whitespace *> assignment <* whitespace
   where
@@ -107,12 +113,9 @@ expression = whitespace *> assignment <* whitespace
       target <- disjunction
       line <- getLineNr
       value <- optional (mchar '=' *> assignment)
-      case value of
-        Nothing -> return target
-        Just ex ->
-          if isValidLValue target
-            then return $ Assign target ex
-            else return $ InvalidAssignmentTarget line
+      return $ case value of
+        Nothing -> target
+        Just ex -> Assign line target ex
 
     disjunction :: Parser Expression = do
       firstDisjunct <- conjunction
@@ -124,29 +127,13 @@ expression = whitespace *> assignment <* whitespace
       conjuncts <- many $ keyword "and" *> equality
       return $ foldl' And firstConjunct conjuncts
 
-    equality :: Parser Expression = do
-      firstComparand <- comparisonExp
-      let comparand = (,) <$> binaryOperator ["==", "!="] <*> comparisonExp
-      comparands <- many comparand
-      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstComparand comparands
+    equality :: Parser Expression = binaryOpChain ["==", "!="] comparisonExp
 
-    comparisonExp :: Parser Expression = do
-      firstComparand <- sumExp
-      let comparand = (,) <$> binaryOperator [">=", ">", "<=", "<"] <*> sumExp
-      comparands <- many comparand
-      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstComparand comparands
+    comparisonExp :: Parser Expression = binaryOpChain [">=", ">", "<=", "<"] sumExp
 
-    sumExp :: Parser Expression = do
-      firstTerm <- productExp
-      let term = (,) <$> binaryOperator ["-", "+"] <*> productExp
-      terms <- many term
-      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstTerm terms
+    sumExp :: Parser Expression = binaryOpChain ["-", "+"] productExp
 
-    productExp :: Parser Expression = do
-      firstFactor <- unaryExp
-      let factor = (,) <$> binaryOperator ["/", "*"] <*> unaryExp
-      factors <- many factor
-      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstFactor factors
+    productExp :: Parser Expression = binaryOpChain ["/", "*"] unaryExp
 
     unaryExp :: Parser Expression =
       mchar '!' *> (Not <$> unaryExp)
@@ -181,7 +168,11 @@ superMethod = do
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
   ln <- getLineNr
-  findNext $ void (mchar ';') <|> testFor startOfStatement <|> eof
+  findNext $
+    void (mchar ';')
+      <|> testFor (void $ mchar '}')
+      <|> testFor startOfStatement
+      <|> eof
   return $ CouldNotParse ln err
 
 startOfStatement :: Parser ()
@@ -229,17 +220,9 @@ funcDef = do
   funcName <- identifier
   whitespace
   params <- parameters
-  body <- whitespace *> block
-  let wrapper =
-        if
-          | length params > 255 -> TooManyParams
-          | hasDuplicates params -> DuplicateParams
-          | otherwise -> FunctionDef
-  return $ wrapper line funcName params body
-
-hasDuplicates :: (Eq a) => [a] -> Bool
-hasDuplicates [] = False
-hasDuplicates (x : xs) = x `elem` xs || hasDuplicates xs
+  whitespace
+  body <- block
+  return FunctionDef {params = params, line = line, name = funcName, body = body}
 
 funcDecl :: Parser Statement
 funcDecl = keyword "fun" *> whitespace *> (FunctionDecl <$> funcDef)
@@ -278,9 +261,7 @@ functionCall :: Parser (Expression -> Expression)
 functionCall = do
   line <- getLineNr
   args <- arguments
-  if length args > 255
-    then return $ const $ TooManyArgs line
-    else return (\f -> FunctionCall line f args)
+  return (\f -> FunctionCall line f args)
 
 parameters :: Parser [Identifier]
 parameters = do

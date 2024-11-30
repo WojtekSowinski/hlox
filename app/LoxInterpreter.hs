@@ -35,14 +35,8 @@ exec program = do
 
 interpret :: Statement -> LoxAction ()
 interpret NOP = return ()
-interpret (Eval ex) =
-  loxCatch
-    (void $ eval ex)
-    (\(_, err) -> loxThrow $ "Couldn't evaluate expression - " ++ err)
-interpret (Print ex) =
-  loxCatch
-    (eval ex >>= (liftIO . print))
-    (\(_, err) -> loxThrow $ "Couldn't evaluate expression - " ++ err)
+interpret (Eval ex) = void $ eval ex
+interpret (Print ex) = eval ex >>= (liftIO . print)
 interpret (VarInitialize _ varName ex) = do
   initVal <- eval ex
   void $ define varName initVal
@@ -102,7 +96,7 @@ eval (Super line method) = do
   case findMethod method klass of
     Nothing -> loxThrow ("Undefined method '" ++ method ++ "'.")
     Just f -> return $ Function $ bind obj f
-eval (Assign target ex) = assign target ex
+eval (Assign _ target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
   args <- mapM eval argExs
@@ -116,8 +110,6 @@ eval (AccessProperty line ex prop) = do
   case operand of
     Object obj -> setLine line >> getProperty obj prop
     _ -> loxThrow ("Can't access properties on " ++ show operand ++ " as it is not an object.")
-eval (TooManyArgs _) = undefined
-eval (InvalidAssignmentTarget _) = undefined
 
 applyBinOp :: Value -> BinOp -> Value -> LoxAction Value
 applyBinOp left EQ right = return $ LitBoolean $ left == right
@@ -171,7 +163,7 @@ getLocalRef name = do
     Nothing -> define name undefined
 
 makeTopLevelFunction :: FunctionDef -> LoxAction LoxFunction
-makeTopLevelFunction (FunctionDef _ name params body) = do
+makeTopLevelFunction FunctionDef {body=body, params=params, name=name} = do
   funcRef <- getLocalRef name
   currentState <- get
   let f =
@@ -183,17 +175,15 @@ makeTopLevelFunction (FunctionDef _ name params body) = do
           }
   liftIO $ writeIORef funcRef $ Function f
   return f
-makeTopLevelFunction _ = undefined
 
 makeMethod :: ProgramState -> FunctionDef -> (Identifier, LoxFunction)
-makeMethod closure (FunctionDef _ name params body) = (name, fn)
+makeMethod closure FunctionDef {body=body, params=params, name=name} = (name, fn)
   where
     fnBody =
       if name == "init"
         then acceptReturn (interpret body) >> (gets this >>= loxReturn)
         else interpret body
     fn = LoxFunction {fnParams = params, fnName = name, fnBody = fnBody, closure = closure}
-makeMethod _ _ = undefined
 
 createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
 createClass className superExpr methodDefs = do

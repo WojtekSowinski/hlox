@@ -34,17 +34,18 @@ import Data.Char (toLower)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.Map qualified as Map
 import Environment
+import ParserCombinators (Location)
 
 data ProgramState = ProgramState
   { env :: Environment (IORef Value),
-    lineNumber :: Int,
+    lineNumber :: Location,
     this :: Value,
     super :: LoxClass
   }
 
 type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
 
-type LoxError = (Int, String)
+type LoxError = (Location, String)
 
 data ShortCircuit = Errored LoxError | Returned Value
 
@@ -63,7 +64,7 @@ enterNewScope dict = do
 exitScope :: LoxAction ()
 exitScope = modify (\s -> s {env = discardLocal (env s)})
 
-setLine :: Int -> LoxAction ()
+setLine :: Location -> LoxAction ()
 setLine n = modify (\s -> s {lineNumber = n})
 
 class (Show f) => LoxCallable f where

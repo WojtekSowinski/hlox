@@ -8,15 +8,15 @@ import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
 import LoxAST (Program)
 import LoxInternals (LoxAction, ProgramState, runLoxAction)
-import LoxInterpreter (exec, initialize)
+import LoxInterpreter (exec, initializeGlobals)
 import LoxParser (program, repl)
-import ParserCombinators (ParseOutput (Matched), Parser (runParser))
+import ParserCombinators (ParseOutput (Matched), Parser, parse)
 import System.Environment (getArgs)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitSuccess, exitWith)
 
 run :: String -> Parser Program -> LoxAction ExitCode
 run code parser = do
-  case runParser parser (code, 1) of
+  case parse code parser of
     (_, Matched statements) -> exec statements
     _ -> liftIO (putStrLn "PARSER BUG!!!") >> return (ExitFailure 1)
 
@@ -39,7 +39,7 @@ runRepl state = do
 main :: IO ()
 main = do
   args <- getArgs
-  initState <- initialize
+  initState <- initializeGlobals
   case args of
     [] -> runRepl initState
     [filename] -> do

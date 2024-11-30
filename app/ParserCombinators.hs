@@ -1,4 +1,26 @@
-module ParserCombinators where
+module ParserCombinators
+  ( ParseError,
+    ParseState,
+    Location (Location),
+    ParseOutput (..),
+    Parser (..),
+    parse,
+    getLocation,
+    panic,
+    calm,
+    (<!>),
+    consumeChar,
+    eof,
+    mchar,
+    match,
+    consumeWhile,
+    findNext,
+    testFor,
+    untilP,
+    sepBy,
+    choice,
+  )
+where
 
 import Control.Applicative (Alternative (empty), (<|>))
 import Control.Monad (MonadPlus, mfilter)
@@ -10,7 +32,10 @@ type ParseError = String
 
 type ParseState = (String, Location)
 
-type Location = Int
+data Location = Location {line :: Int, column :: Int}
+
+instance Show Location where
+  show (Location line column) = show line ++ ':' : show column
 
 data ParseOutput a
   = Matched a -- The input was parsed successfully
@@ -19,6 +44,9 @@ data ParseOutput a
   deriving (Functor, Show)
 
 newtype Parser a = Parser {runParser :: ParseState -> (ParseState, ParseOutput a)}
+
+parse :: String -> Parser a -> (ParseState, ParseOutput a)
+parse input parser = runParser parser (input, Location 1 1)
 
 instance Functor Parser where
   fmap :: (a -> b) -> Parser a -> Parser b
@@ -91,7 +119,9 @@ choice = foldl' (<|>) empty
 consumeChar :: Parser Char
 consumeChar = Parser p
   where
-    p (c : cs, ln) = ((cs, if c == '\n' then ln + 1 else ln), Matched c)
+    p (c : cs, Location ln col) = ((cs, newLocation), Matched c)
+      where
+        newLocation = if c == '\n' then Location (ln + 1) 1 else Location ln (col + 1)
     p st@("", _) = (st, Failed "Unexpected end of file.")
 
 eof :: Parser ()
@@ -103,32 +133,31 @@ eof = Parser p
 mchar :: Char -> Parser Char
 mchar expected = mfilter (== expected) consumeChar
 
-count :: (Eq a) => a -> [a] -> Int
-count = count' 0
-  where
-    count' acc _ [] = acc
-    count' acc x (y : ys) = count' (acc + if x == y then 1 else 0) x ys
+advanceLocation :: Location -> String -> Location
+advanceLocation loc [] = loc
+advanceLocation (Location {line = l}) ('\n' : rest) = advanceLocation (Location (l + 1) 1) rest
+advanceLocation loc@(Location {column = c}) (_ : rest) = advanceLocation (loc {column = c + 1}) rest
 
 match :: String -> Parser String
 match str = Parser p
   where
-    p st@(input, ln)
-      | str `isPrefixOf` input = ((remaining, newLn), Matched str)
+    p st@(input, loc)
+      | str `isPrefixOf` input = ((remaining, newLoc), Matched str)
       | otherwise = (st, Failed $ "Expected " ++ show str)
       where
         remaining = drop (length str) input
-        newLn = ln + count '\n' str
+        newLoc = advanceLocation loc str
 
 consumeWhile :: (Char -> Bool) -> Parser String
 consumeWhile f = Parser p
   where
-    p (input, ln) = ((remaining, newLn), Matched consumed)
+    p (input, loc) = ((remaining, newLoc), Matched consumed)
       where
         (consumed, remaining) = span f input
-        newLn = count '\n' consumed + ln
+        newLoc = advanceLocation loc consumed
 
-getLineNr :: Parser Location
-getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
+getLocation :: Parser Location
+getLocation = Parser (\st@(_, loc) -> (st, Matched loc))
 
 findNext :: Parser a -> Parser a
 findNext pa = Parser p

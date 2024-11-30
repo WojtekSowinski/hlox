@@ -103,7 +103,7 @@ binaryOperator ops = fromJust . flip lookup operatorDict <$> choice (map match o
 binaryOpChain :: [String] -> Parser Expression -> Parser Expression
 binaryOpChain operators operandParser = do
   firstOperand <- operandParser
-  operands <- many $ (,,) <$> getLineNr <*> binaryOperator operators <*> operandParser
+  operands <- many $ (,,) <$> getLocation <*> binaryOperator operators <*> operandParser
   return $ foldl' (\l (ln, op, r) -> BinOperation ln l op r) firstOperand operands
 
 expression :: Parser Expression
@@ -111,7 +111,7 @@ expression = whitespace *> assignment <* whitespace
   where
     assignment :: Parser Expression = do
       target <- disjunction
-      line <- getLineNr
+      line <- getLocation
       value <- optional (mchar '=' *> assignment)
       return $ case value of
         Nothing -> target
@@ -137,7 +137,7 @@ expression = whitespace *> assignment <* whitespace
 
     unaryExp :: Parser Expression =
       mchar '!' *> (Not <$> unaryExp)
-        <|> mchar '-' *> (Negative <$> getLineNr <*> unaryExp)
+        <|> mchar '-' *> (Negative <$> getLocation <*> unaryExp)
         <|> call
 
     call :: Parser Expression = do
@@ -147,7 +147,7 @@ expression = whitespace *> assignment <* whitespace
 
     primaryExp :: Parser Expression = do
       whitespace
-      line <- getLineNr
+      line <- getLocation
       expr <-
         Literal <$> literal
           <|> (This line <$ match "this")
@@ -167,7 +167,7 @@ superMethod = do
 
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
-  ln <- getLineNr
+  ln <- getLocation
   findNext $
     void (mchar ';')
       <|> testFor (void $ mchar '}')
@@ -206,7 +206,7 @@ declaration = varDecl <|> funcDecl <|> classDecl
 varDecl :: Parser Statement
 varDecl = do
   keyword "var"
-  line <- getLineNr
+  line <- getLocation
   whitespace
   varName <- identifier
   whitespace
@@ -216,7 +216,7 @@ varDecl = do
 
 funcDef :: Parser FunctionDef
 funcDef = do
-  line <- getLineNr
+  line <- getLocation
   funcName <- identifier
   whitespace
   params <- parameters
@@ -231,7 +231,7 @@ classDecl :: Parser Statement
 classDecl = do
   keyword "class"
   whitespace
-  line <- getLineNr
+  line <- getLocation
   name <- identifier
   whitespace
   super <- optional $ mchar '<' *> whitespace *> expression <* whitespace
@@ -245,7 +245,7 @@ classDecl = do
 propertyAccess :: Parser (Expression -> Expression)
 propertyAccess = do
   prop <- mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
-  line <- getLineNr
+  line <- getLocation
   return (\obj -> AccessProperty line obj prop)
 
 arguments :: Parser [Expression]
@@ -259,7 +259,7 @@ arguments = do
 
 functionCall :: Parser (Expression -> Expression)
 functionCall = do
-  line <- getLineNr
+  line <- getLocation
   args <- arguments
   return (\f -> FunctionCall line f args)
 
@@ -275,7 +275,7 @@ parameters = do
 returnStatement :: Parser Statement
 returnStatement = do
   keyword "return"
-  line <- getLineNr
+  line <- getLocation
   value <- optional expression
   mchar ';' <|> panic "Expected ';' after a return statement."
   return $ Return line value

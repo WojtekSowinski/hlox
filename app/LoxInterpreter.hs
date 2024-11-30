@@ -1,6 +1,6 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
-module LoxInterpreter (exec, initialize) where
+module LoxInterpreter (exec, initializeGlobals) where
 
 import Control.Monad.State
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
@@ -12,16 +12,10 @@ import StaticAnalysis
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
 
-initialize :: IO ProgramState
-initialize = do
+initializeGlobals :: IO ProgramState
+initializeGlobals = do
   clockRef <- newIORef $ Function clock
-  return $
-    ProgramState
-      { lineNumber = 1,
-        env = fromList [("clock", clockRef)],
-        this = Nil,
-        super = undefined
-      }
+  return $ initialize [("clock", clockRef)]
 
 exec :: Program -> LoxAction ExitCode
 exec program = do
@@ -163,7 +157,7 @@ getLocalRef name = do
     Nothing -> define name undefined
 
 makeTopLevelFunction :: FunctionDef -> LoxAction LoxFunction
-makeTopLevelFunction FunctionDef {body=body, params=params, name=name} = do
+makeTopLevelFunction FunctionDef {body = body, params = params, name = name} = do
   funcRef <- getLocalRef name
   currentState <- get
   let f =
@@ -177,7 +171,7 @@ makeTopLevelFunction FunctionDef {body=body, params=params, name=name} = do
   return f
 
 makeMethod :: ProgramState -> FunctionDef -> (Identifier, LoxFunction)
-makeMethod closure FunctionDef {body=body, params=params, name=name} = (name, fn)
+makeMethod closure FunctionDef {body = body, params = params, name = name} = (name, fn)
   where
     fnBody =
       if name == "init"

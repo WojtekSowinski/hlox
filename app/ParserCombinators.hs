@@ -22,7 +22,7 @@ module ParserCombinators
   )
 where
 
-import Control.Applicative (Alternative (empty), (<|>))
+import Control.Applicative (Alternative (empty, many), (<|>))
 import Control.Monad (MonadPlus, mfilter)
 import Data.Foldable (foldl')
 import Data.Functor (($>))
@@ -181,4 +181,4 @@ untilP :: Parser a -> Parser b -> Parser [b]
 untilP cond loop = (calm cond $> []) <|> ((:) <$> loop <*> untilP cond loop)
 
 sepBy :: Parser a -> Parser s -> Parser [a]
-sepBy pa ps = ((:) <$> pa <*> ((calm ps *> sepBy pa ps) <|> return [])) <|> return []
+sepBy pa ps = ((:) <$> pa <*> many (ps *> pa)) <|> return []

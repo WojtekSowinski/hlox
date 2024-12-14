@@ -1,7 +1,7 @@
-{-# LANGUAGE MultiWayIf #-}
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
-module LoxParser (program, repl) where
+-- module LoxParser (program, repl) where
+module LoxParser  where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
@@ -16,7 +16,13 @@ import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
 
 whitespace :: Parser String
-whitespace = consumeWhile (`elem` " \r\t\n")
+whitespace = mfilter (not . null) (consumeWhile (`elem` " \r\t\n"))
+
+emptySpace :: Parser ()
+emptySpace = void $ many $ whitespace <|> comment
+
+comment :: Parser String
+comment = match "//" *> consumeWhile (/= '\n')
 
 digit :: Parser Char
 digit = mfilter isDigit consumeChar
@@ -107,7 +113,7 @@ binaryOpChain operators operandParser = do
   return $ foldl' (\l (ln, op, r) -> BinOperation ln l op r) firstOperand operands
 
 expression :: Parser Expression
-expression = whitespace *> assignment <* whitespace
+expression = emptySpace *> assignment <* emptySpace
   where
     assignment :: Parser Expression = do
       target <- disjunction
@@ -142,11 +148,11 @@ expression = whitespace *> assignment <* whitespace
 
     call :: Parser Expression = do
       expr <- primaryExp
-      modifiers <- many ((propertyAccess <|> functionCall) <* whitespace)
+      modifiers <- many ((propertyAccess <|> functionCall) <* emptySpace)
       return $ foldl' (\x f -> f x) expr modifiers
 
     primaryExp :: Parser Expression = do
-      whitespace
+      emptySpace
       line <- getLocation
       expr <-
         Literal <$> literal
@@ -154,15 +160,15 @@ expression = whitespace *> assignment <* whitespace
           <|> Variable line <$> identifier
           <|> Super line <$> superMethod
           <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
-      whitespace
+      emptySpace
       return expr
 
 superMethod :: Parser Identifier
 superMethod = do
   keyword "super"
-  whitespace
+  emptySpace
   mchar '.' <|> panic "Expected '.' after 'super'."
-  whitespace
+  emptySpace
   identifier <|> panic "Expected a superclass method name."
 
 synchronize :: ParseError -> Parser Statement
@@ -183,9 +189,9 @@ startOfStatement = do
 statement :: Parser Statement
 statement =
   ( do
-      whitespace
+      emptySpace
       s <- command <|> declaration <|> (consumeChar *> panic "Invalid syntax.")
-      whitespace
+      emptySpace
       return s
   )
     <!> synchronize
@@ -207,9 +213,9 @@ varDecl :: Parser Statement
 varDecl = do
   keyword "var"
   line <- getLocation
-  whitespace
+  emptySpace
   varName <- identifier
-  whitespace
+  emptySpace
   initValue <- optional (mchar '=' *> expression)
   mchar ';' <|> panic "Expected ';' after a variable declaration."
   return $ VarInitialize line varName $ fromMaybe (Literal Nil) initValue
@@ -218,27 +224,27 @@ funcDef :: Parser FunctionDef
 funcDef = do
   line <- getLocation
   funcName <- identifier
-  whitespace
+  emptySpace
   params <- parameters
-  whitespace
+  emptySpace
   body <- block
   return FunctionDef {params = params, line = line, name = funcName, body = body}
 
 funcDecl :: Parser Statement
-funcDecl = keyword "fun" *> whitespace *> (FunctionDecl <$> funcDef)
+funcDecl = keyword "fun" *> emptySpace *> (FunctionDecl <$> funcDef)
 
 classDecl :: Parser Statement
 classDecl = do
   keyword "class"
-  whitespace
+  emptySpace
   line <- getLocation
   name <- identifier
-  whitespace
-  super <- optional $ mchar '<' *> whitespace *> expression <* whitespace
+  emptySpace
+  super <- optional $ mchar '<' *> emptySpace *> expression <* emptySpace
   mchar '{' <|> panic "Expected '{' before class body."
-  whitespace
-  methods <- funcDef `sepBy` whitespace
-  whitespace
+  emptySpace
+  methods <- funcDef `sepBy` emptySpace
+  emptySpace
   mchar '}' <|> panic "Expected '}' after class body."
   return $ ClassDecl line name super methods
 
@@ -251,9 +257,9 @@ propertyAccess = do
 arguments :: Parser [Expression]
 arguments = do
   mchar '('
-  whitespace
-  args <- expression `sepBy` (whitespace *> mchar ',' <* whitespace)
-  whitespace
+  emptySpace
+  args <- expression `sepBy` (emptySpace *> mchar ',' <* emptySpace)
+  emptySpace
   mchar ')' <|> panic "Missing ')' after argument list."
   return args
 
@@ -266,9 +272,9 @@ functionCall = do
 parameters :: Parser [Identifier]
 parameters = do
   mchar '('
-  whitespace
-  params <- identifier `sepBy` (whitespace *> mchar ',' <* whitespace)
-  whitespace
+  emptySpace
+  params <- identifier `sepBy` (emptySpace *> mchar ',' <* emptySpace)
+  emptySpace
   mchar ')' <|> panic "Missing ')' after parameters list."
   return params
 
@@ -304,41 +310,41 @@ block = do
 ifStatement :: Parser Statement
 ifStatement = do
   keyword "if"
-  whitespace
+  emptySpace
   mchar '(' <|> panic "Expected '(' after 'if'."
   cond <- expression
   mchar ')' <|> panic "Missing ')' after condition."
-  trueBranch <- whitespace *> command <* whitespace
-  falseBranch <- optional (keyword "else" *> whitespace *> command)
+  trueBranch <- emptySpace *> command <* emptySpace
+  falseBranch <- optional (keyword "else" *> emptySpace *> command)
   return $ If cond trueBranch (fromMaybe NOP falseBranch)
 
 whileLoop :: Parser Statement
 whileLoop = do
   keyword "while"
-  whitespace
+  emptySpace
   mchar '(' <|> panic "Expected '(' after 'while'."
   cond <- expression
   mchar ')' <|> panic "Missing ')' after condition."
-  whitespace
+  emptySpace
   While cond <$> command
 
 forLoop :: Parser Statement
 forLoop = do
   keyword "for"
-  whitespace
+  emptySpace
   mchar '(' <|> panic "Expected '(' after 'for'."
-  whitespace
+  emptySpace
   initStatement <- (mchar ';' >> return NOP) <|> varDecl <|> expressionStatement
   cond <- expression <|> return (Literal $ LitBoolean True)
   mchar ';' <|> panic "Expected ';' after a loop condition."
   inc <- expression <|> return (Literal Nil)
   mchar ')' <|> panic "Missing ')' after for loop initialization clauses."
-  whitespace
+  emptySpace
   body <- command
   return $ Block [initStatement, While cond $ Block [body, Eval inc]]
 
 program :: Parser Program
-program = untilP eof statement
+program = emptySpace *> untilP eof statement
 
 repl :: Parser Program
 repl = ((: []) . Print <$> calm expression <* eof) <|> program

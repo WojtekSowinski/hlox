@@ -1,9 +1,17 @@
 {-# LANGUAGE DuplicateRecordFields #-}
 
-module LoxAST where
+module LoxAST
+  ( BinOp (..),
+    Program,
+    Expression (..),
+    Statement (..),
+    FunctionDef (..),
+    isValidLValue,
+  )
+where
 
-import LoxInternals (Value)
 import Environment (Identifier)
+import LoxInternals (Value)
 import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
@@ -47,7 +55,7 @@ data Statement
   | Return {line :: Int, returnValue :: Maybe Expression}
   | Block {statements :: [Statement]}
   | FunctionDecl FunctionDef
-  | ClassDecl {name :: Identifier, super :: Maybe Expression, methods :: [FunctionDef]}
+  | ClassDecl {line :: Int, name :: Identifier, super :: Maybe Expression, methods :: [FunctionDef]}
   | NOP
   | CouldNotParse {line :: Int, errMsg :: String}
   deriving (Show)

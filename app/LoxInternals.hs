@@ -1,16 +1,43 @@
-module LoxInternals where
+module LoxInternals
+  ( ProgramState (..),
+    LoxAction,
+    LoxError,
+    LoxCallable (..),
+    LoxFunction (..),
+    LoxClass (..),
+    LoxInstance (..),
+    Value (..),
+    define,
+    enterNewScope,
+    exitScope,
+    setLine,
+    getProperty,
+    setProperty,
+    isTruthy,
+    runLoxAction,
+    loxThrow,
+    loxCatch,
+    loxReturn,
+    acceptReturn,
+    reportError
+  )
+where
 
-import Control.Monad (when)
+import Control.Applicative ((<|>))
 import Control.Monad.Except (ExceptT, runExceptT)
-import Control.Monad.State ( StateT, runStateT, gets )
+import Control.Monad.State (StateT, get, gets, modify, put, runStateT)
+import Control.Monad.Trans (liftIO)
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
-import Data.IORef (IORef, newIORef, readIORef, modifyIORef)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
+import Data.Map qualified as Map
 import Environment
-import qualified Data.Map as Map
-import Control.Monad.Trans (liftIO)
 
-data ProgramState = ProgramState {env :: Environment (IORef Value), lineNumber :: Int}
+data ProgramState = ProgramState
+  { env :: Environment (IORef Value),
+    lineNumber :: Int,
+    this :: Value
+  }
 
 type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
 
@@ -18,15 +45,36 @@ type LoxError = (Int, String)
 
 data ShortCircuit = Errored LoxError | Returned Value
 
+define :: Identifier -> Value -> LoxAction (IORef Value)
+define name value = do
+  ref <- liftIO $ newIORef value
+  modify (\s -> s {env = insert name ref (env s)})
+  return ref
+
+enterNewScope :: [(Identifier, Value)] -> LoxAction ()
+enterNewScope dict = do
+  let (names, vals) = unzip dict
+  refs <- mapM (liftIO . newIORef) vals
+  modify (\s -> s {env = initNewScope (zip names refs) (env s)})
+
+exitScope :: LoxAction ()
+exitScope = modify (\s -> s {env = discardLocal (env s)})
+
+setLine :: Int -> LoxAction ()
+setLine n = modify (\s -> s {lineNumber = n})
+
 class (Show f) => LoxCallable f where
   call :: f -> [Value] -> LoxAction Value
   arity :: f -> Int
 
-class (Show t) => LoxObject t where
-  getProperty :: t -> Identifier -> LoxAction Value
-  setProperty :: t -> Identifier -> Value -> LoxAction ()
+data LoxClass = LoxClass
+  { name :: Identifier,
+    superclass :: Maybe LoxClass,
+    methods :: [(Identifier, LoxFunction)]
+  }
 
-data LoxClass = LoxClass {name :: Identifier, superclass :: Maybe LoxClass}
+findMethod :: Identifier -> LoxClass -> Maybe LoxFunction
+findMethod name LoxClass {methods = methods} = lookup name methods
 
 instance Show LoxClass where
   show :: LoxClass -> String
@@ -40,21 +88,54 @@ instance LoxCallable LoxClass where
   arity :: LoxClass -> Int
   arity _ = 0
 
-data LoxInstance = LoxInstance {klass :: LoxClass, properties :: IORef (Map.Map Identifier Value)}
+data LoxFunction = LoxFunction
+  { fnName :: Identifier,
+    fnParams :: [Identifier],
+    fnBody :: LoxAction (),
+    closure :: ProgramState
+  }
+
+instance Show LoxFunction where
+  show f = "<fn " ++ fnName f ++ ">"
+
+instance LoxCallable LoxFunction where
+  call :: LoxFunction -> [Value] -> LoxAction Value
+  call f args = do
+    oldState <- get
+    put $ closure f
+    enterNewScope $ zip (fnParams f) args
+    returnVal <- acceptReturn $ fnBody f
+    put oldState
+    return returnVal
+
+  arity :: LoxFunction -> Int
+  arity = length . fnParams
+
+data LoxInstance = LoxInstance
+  { klass :: LoxClass,
+    properties :: IORef (Map.Map Identifier Value)
+  }
 
 instance Show LoxInstance where
   show :: LoxInstance -> String
   show obj = "<instnace of class " ++ name (klass obj) ++ ">"
 
-instance LoxObject LoxInstance where
-  getProperty :: LoxInstance -> Identifier -> LoxAction Value
-  getProperty obj prop = do
-    props <- liftIO $ readIORef $ properties obj
-    case Map.lookup prop props of
-      Just val -> return val
-      Nothing -> loxThrow ("Undefined property '" ++ prop ++ "'.")
-  setProperty :: LoxInstance -> Identifier -> Value -> LoxAction ()
-  setProperty obj prop val = liftIO $ modifyIORef (properties obj) $ Map.insert prop val
+instance Eq LoxInstance where
+  (==) :: LoxInstance -> LoxInstance -> Bool
+  x == y = properties x == properties y
+
+getProperty :: LoxInstance -> Identifier -> LoxAction Value
+getProperty obj prop = do
+  props <- liftIO $ readIORef $ properties obj
+  case Map.lookup prop props <|> (Function . bind obj <$> findMethod prop (klass obj)) of
+    Just val -> return val
+    Nothing -> loxThrow ("Undefined property '" ++ prop ++ "'.")
+
+bind :: LoxInstance -> LoxFunction -> LoxFunction
+bind obj f@LoxFunction {closure = c} = f {closure = c {this = Object obj}}
+
+setProperty :: LoxInstance -> Identifier -> Value -> LoxAction ()
+setProperty obj prop val = liftIO $ modifyIORef (properties obj) $ Map.insert prop val
 
 data Value
   = LitString String
@@ -62,7 +143,7 @@ data Value
   | LitBoolean Bool
   | Nil
   | Class LoxClass
-  | forall t. (LoxObject t) => Object t
+  | Object LoxInstance
   | forall f. (LoxCallable f) => Function f
 
 instance Show Value where
@@ -83,6 +164,7 @@ instance Eq Value where
   (LitNumber n1) == (LitNumber n2) = n1 == n2
   (LitString s1) == (LitString s2) = s1 == s2
   Nil == Nil = True
+  (Object x) == (Object y) = x == y
   _ == _ = False
 
 isTruthy :: Value -> Bool
@@ -95,8 +177,8 @@ runLoxAction = runStateT . runExceptT
 
 loxThrow :: String -> LoxAction a
 loxThrow errMsg = do
-    line <- gets lineNumber
-    throwE $ Errored (line, errMsg)
+  line <- gets lineNumber
+  throwE $ Errored (line, errMsg)
 
 loxCatch :: LoxAction a -> (LoxError -> LoxAction a) -> LoxAction a
 loxCatch action handler = catchE action handler'
@@ -113,11 +195,6 @@ acceptReturn action = do
   where
     handler (Returned val) = return val
     handler err = throwE err
-
-whileM_ :: (Monad m) => m Bool -> m a -> m ()
-whileM_ mb ma = do
-  b <- mb
-  when b $ ma >> whileM_ mb ma
 
 reportError :: LoxError -> IO ()
 reportError (ln, err) = do

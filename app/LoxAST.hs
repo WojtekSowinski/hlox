@@ -1,20 +1,8 @@
 module LoxAST where
 
-import Data.Char (toLower)
 import Prelude hiding (EQ, GT, LT)
-
-data Value
-  = LitString String
-  | LitNumber Double
-  | LitBoolean Bool
-  | Nil
-  deriving (Eq)
-
-instance Show Value where
-  show (LitString s) = s
-  show (LitNumber n) = show n
-  show (LitBoolean b) = map toLower $ show b
-  show Nil = "nil"
+import LoxInternals (Value)
+import Scope (Identifier)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
 
@@ -29,8 +17,6 @@ instance Show BinOp where
   show GEQ = ">="
   show EQ = "=="
   show NEQ = "!="
-
-type Identifier = String
 
 type Program = [Statement]
 
@@ -53,7 +39,7 @@ data Statement
   | If {condition :: Expression, trueBranch :: Statement, falseBranch :: Statement}
   | While {condition :: Expression, body :: Statement}
   | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
-  | Return Expression
+  | Return (Maybe Expression)
   | CouldNotParse {lineNr :: Int, errMsg :: String}
   | Block [Statement]
   | NOP

@@ -26,13 +26,22 @@ reportError (ln, err) = do
   let errorBanner = "\027[1;31mERROR on line " ++ show ln ++ ": \027[22m"
   putStrLn $ errorBanner ++ err ++ "\027[0m"
 
-exec :: [Statement] -> LoxAction ()
+errorsIn :: Statement -> [LoxError]
+errorsIn (CouldNotParse ln err) = [(ln, err)]
+errorsIn (Block statements) = concatMap errorsIn statements
+errorsIn (If _ ifTrue ifFalse) = errorsIn ifTrue ++ errorsIn ifFalse
+errorsIn (While _ body) = errorsIn body
+errorsIn (For ini _ inc body) = errorsIn ini ++ errorsIn inc ++ errorsIn body
+errorsIn (FunctionDef _ _ body) = errorsIn body
+errorsIn _ = []
+
+exec :: Program -> LoxAction ()
 exec program = do
-  let errors = [(ln, err) | (CouldNotParse ln err) <- program]
-  liftIO $ mapM_ reportError errors
+  let errors = concatMap errorsIn program
   if null errors
     then mapM_ interpret program
     else do
+      liftIO $ mapM_ reportError errors
       setToExit <- gets exitOnError
       when setToExit $ liftIO exitFailure
 
@@ -70,6 +79,10 @@ interpret (CouldNotParse _ _) = undefined
 interpret (VarInitialize varName ex) = do
   initVal <- eval ex
   modify (\s -> s {environment = Map.insert varName initVal $ environment s})
+interpret (Block statements) = do
+  oldEnv <- gets environment
+  mapM_ interpret statements
+  modify (\s -> s {environment = oldEnv})
 interpret _ = undefined
 
 eval :: Expression -> LoxAction Value

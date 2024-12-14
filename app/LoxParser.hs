@@ -1,7 +1,7 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 -- module LoxParser (program, repl) where
-module LoxParser where
+module LoxParser  where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void, when)
@@ -153,12 +153,12 @@ expression = whitespace *> assignment <* whitespace
 
     functionCall = do
       func <- primaryExp
-      call <- optional $ mchar '(' *> (expression `sepBy` mchar ',') <* mchar ')'
-      case call of
+      args <- optional arguments <* whitespace
+      case args of
         Nothing -> return func
-        Just args -> do 
-            when (length args > 255) $ panic "Can't have more than 255 arguments."
-            return $ FunctionCall func args
+        Just argList -> do
+            when (length argList > 255) $ panic "Can't have more than 255 arguments."
+            return $ FunctionCall func argList
 
     primaryExp =
       whitespace
@@ -222,8 +222,23 @@ funcDef = do
   body <- whitespace *> command
   return $ FunctionDef funcName params body
 
+arguments :: Parser [Expression]
+arguments = do
+    mchar '('
+    whitespace
+    args <- expression `sepBy` (whitespace *> mchar ',' <* whitespace)
+    whitespace
+    mchar ')' <|> panic "Missing ')' after argument list."
+    return args
+
 parameters :: Parser [Identifier]
-parameters = mchar '(' *> (identifier `sepBy` (whitespace *> mchar ',' <* whitespace))
+parameters = do
+    mchar '('
+    whitespace
+    params <- identifier `sepBy` (whitespace *> mchar ',' <* whitespace)
+    whitespace
+    mchar ')' <|> panic "Missing ')' after parameters list."
+    return params
 
 returnStatement :: Parser Statement
 returnStatement = do
@@ -248,7 +263,9 @@ expressionStatement = do
 block :: Parser Statement
 block = do
   mchar '{'
-  statements <- untilP (mchar '}') statement <|> panic "Missing '}'."
+  let endOfBlock = void (testFor (mchar '}')) <|> eof
+  statements <- untilP endOfBlock statement 
+  mchar '}' <|> panic "Missing '}'."
   return $ Block statements
 
 ifStatement :: Parser Statement

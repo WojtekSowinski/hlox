@@ -8,7 +8,9 @@ import Data.List (isPrefixOf)
 
 type ParseError = String
 
-type ParseState = (String, Int)
+type ParseState = (String, Location)
+
+type Location = Int
 
 data ParseOutput a
   = Matched a -- The input was parsed successfully
@@ -125,7 +127,7 @@ consumeWhile f = Parser p
         (consumed, remaining) = span f input
         newLn = count '\n' consumed + ln
 
-getLineNr :: Parser Int
+getLineNr :: Parser Location
 getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
 
 findNext :: Parser a -> Parser a

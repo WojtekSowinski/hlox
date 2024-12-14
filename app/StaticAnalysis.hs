@@ -2,7 +2,7 @@ module StaticAnalysis (errorsIn) where
 
 import Control.Monad.State (State, evalState, get, modify, put)
 import Environment (Identifier)
-import LoxAST (Expression (..), FunctionDef (..), Program, Statement (..))
+import LoxAST (Expression (..), FunctionDef (..), Program, Statement (..), isValidLValue)
 import LoxInternals (LoxError)
 
 errorsIn :: Program -> [LoxError]
@@ -53,20 +53,20 @@ errorsInStatement ctx (VarInitialize line name expr) =
     ++ errorsInExpression ctx expr
 
 errorsInFunction :: Context -> FunctionDef -> [LoxError]
-errorsInFunction ctx (FunctionDef _ _ _ body) =
-  errorsInStatement ctx body
-errorsInFunction ctx (TooManyParams line _ _ body) =
-  (line, "Function can't have more than 255 parameters.")
-    : errorsInStatement ctx body
-errorsInFunction ctx (DuplicateParams line _ _ body) =
-  (line, "Function definition assigns the same identifier to multiple parameters.")
-    : errorsInStatement ctx body
+errorsInFunction ctx FunctionDef {body = body, params = params, line = line} =
+  [ (line, "Function can't have more than 255 parameters.")
+    | length params > 255
+  ]
+    ++ [ (line, "Function definition assigns the same identifier to multiple parameters.")
+         | hasDuplicates params
+       ]
+    ++ errorsInStatement ctx body
+
+hasDuplicates :: (Eq a) => [a] -> Bool
+hasDuplicates [] = False
+hasDuplicates (x : xs) = x `elem` xs || hasDuplicates xs
 
 errorsInExpression :: Context -> Expression -> [LoxError]
-errorsInExpression _ (TooManyArgs line) =
-  [(line, "Function call can't take more than 255 arguments.")]
-errorsInExpression _ (InvalidAssignmentTarget line) =
-  [(line, "Invalid assignment target.")]
 errorsInExpression ctx (Negative _ operand) =
   errorsInExpression ctx operand
 errorsInExpression ctx (Not operand) =
@@ -77,10 +77,14 @@ errorsInExpression ctx (And left right) =
   errorsInExpression ctx left ++ errorsInExpression ctx right
 errorsInExpression ctx (Or left right) =
   errorsInExpression ctx left ++ errorsInExpression ctx right
-errorsInExpression ctx (Assign left right) =
-  errorsInExpression ctx left ++ errorsInExpression ctx right
-errorsInExpression ctx (FunctionCall _ f args) =
-  errorsInExpression ctx f ++ concatMap (errorsInExpression ctx) args
+errorsInExpression ctx (Assign line left right) =
+  [(line, "Invalid assignment target.") | not $ isValidLValue left]
+   ++ errorsInExpression ctx left 
+   ++ errorsInExpression ctx right
+errorsInExpression ctx (FunctionCall line f args) =
+  [(line, "Function call can't take more than 255 arguments.") | length args > 255]
+    ++ errorsInExpression ctx f 
+    ++ concatMap (errorsInExpression ctx) args
 errorsInExpression ctx (AccessProperty _ object _) =
   errorsInExpression ctx object
 errorsInExpression TopLevel (This line) =
@@ -106,7 +110,7 @@ refersTo (And left right) name =
   (left `refersTo` name) || (right `refersTo` name)
 refersTo (Or left right) name =
   (left `refersTo` name) || (right `refersTo` name)
-refersTo (Assign left right) name =
+refersTo (Assign _ left right) name =
   (left `refersTo` name) || (right `refersTo` name)
 refersTo (Negative _ expr) name =
   expr `refersTo` name
@@ -138,10 +142,11 @@ errorsInClass classType = helper []
     helper :: [Identifier] -> [FunctionDef] -> [LoxError]
     helper _ [] =
       []
-    helper found (m : ms) =
-      let (line, name) = (fnLine m, fnName m)
-       in [(line, "Method '" ++ name ++ "' defined multiple times in the same class.") | name `elem` found]
-            ++ errorsInFunction (chooseContext name) m
-            ++ helper found ms
+    helper found (m@FunctionDef {line = line, name = name} : ms) =
+      [ (line, "Method '" ++ name ++ "' defined multiple times in the same class.")
+        | name `elem` found
+      ]
+        ++ errorsInFunction (chooseContext name) m
+        ++ helper found ms
     chooseContext :: Identifier -> Context
     chooseContext name = (if name == "init" then Initializer else Method) classType

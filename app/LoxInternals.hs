@@ -6,7 +6,6 @@ import Control.Monad.State (StateT, runStateT)
 import Control.Monad.Trans.Except (catchE, throwE)
 import Data.Char (toLower)
 import Scope
-import System.Exit (ExitCode (..))
 import Data.IORef (IORef)
 
 type ProgramState = Scope (IORef Value)
@@ -52,14 +51,8 @@ isTruthy Nil = False
 isTruthy (LitBoolean b) = b
 isTruthy _ = True
 
-runLoxAction :: LoxAction a -> ProgramState -> IO (ExitCode, ProgramState)
-runLoxAction action state = do
-  (result, newState) <- runStateT (runExceptT action) state
-  case result of
-    Left (Errored err) -> do
-      reportError err
-      return (ExitFailure 2, state)
-    _ -> return (ExitSuccess, newState)
+runLoxAction :: LoxAction a -> ProgramState -> IO (Either ShortCircuit a, ProgramState)
+runLoxAction = runStateT . runExceptT 
 
 loxThrow :: LoxError -> LoxAction a
 loxThrow = throwE . Errored

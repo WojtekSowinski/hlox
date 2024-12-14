@@ -1,26 +1,21 @@
-module StaticAnalysis (flagErrors) where
+module StaticAnalysis where
 
 import Control.Monad.State (State, evalState, get, modify, put)
 import LoxAST (Expression (..), Program, Statement (..))
 import Scope (Identifier)
+import LoxInternals (LoxError)
+import Data.List (sortOn)
 
-flagErrors :: Program -> Program
-flagErrors = map (invalidReturns None . recursiveVars . doubleDeclarations)
+errorsIn :: Program -> [LoxError]
+errorsIn program = sortOn fst $ concat [f stmt | f <- passes, stmt <- program]
 
-recursiveVars :: Statement -> Statement
-recursiveVars stmt@(VarInitialize line name expr) =
-  if expr `refersTo` name
-    then StaticError line $ "Declaration of variable " ++ name ++ " refers to itself."
-    else stmt
-recursiveVars (If cond trueBranch falseBranch) =
-  If cond (recursiveVars trueBranch) (recursiveVars falseBranch)
-recursiveVars (While cond body) =
-  While cond (recursiveVars body)
-recursiveVars (FunctionDef name params body) =
-  FunctionDef name params (recursiveVars body)
-recursiveVars (Block statements) =
-  Block (map recursiveVars statements)
-recursiveVars stmt = stmt
+passes :: [Statement -> [LoxError]]
+passes = [recursiveVars, invalidReturns None, doubleDeclarations, errorProductions]
+
+recursiveVars :: Statement -> [LoxError]
+recursiveVars (VarInitialize line name expr) =
+  [( line, "Declaration of variable " ++ name ++ " refers to itself." ) | expr `refersTo` name]
+recursiveVars _ = []
 
 refersTo :: Expression -> Identifier -> Bool
 refersTo (Variable _ var) name = var == name
@@ -35,36 +30,44 @@ refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
 
 data FunctionType = None | Function
 
-invalidReturns :: FunctionType -> Statement -> Statement
-invalidReturns None (Return line _) = StaticError line "Can't return from outside a function."
-invalidReturns _ (FunctionDef name params body) =
-  FunctionDef name params (invalidReturns Function body)
-invalidReturns t (If cond trueBranch falseBranch) =
-  If cond (invalidReturns t trueBranch) (invalidReturns t falseBranch)
-invalidReturns t (While cond body) =
-  While cond (invalidReturns t body)
+invalidReturns :: FunctionType -> Statement -> [LoxError]
+invalidReturns None (Return line _) = [(line, "Can't return from outside a function.")]
+invalidReturns _ (FunctionDef _ _ body) =
+  invalidReturns Function body
+invalidReturns t (If _ trueBranch falseBranch) =
+  invalidReturns t trueBranch ++ invalidReturns t falseBranch
+invalidReturns t (While _ body) =
+  invalidReturns t body
 invalidReturns t (Block statements) =
-  Block (map (invalidReturns t) statements)
-invalidReturns _ stmt = stmt
+  concatMap (invalidReturns t) statements
+invalidReturns _ _ = []
 
-doubleDecls :: Statement -> State [Identifier] Statement
-doubleDecls stmt@(VarInitialize line name _) = do
+doubleDeclarations :: Statement -> [LoxError]
+doubleDeclarations stmt = evalState (doubleDecls stmt) []
+
+doubleDecls :: Statement -> State [Identifier] [LoxError]
+doubleDecls (VarInitialize line name _) = do
   found <- get
   if name `elem` found
-    then return $ StaticError line $ "Variable " ++ name ++ " declared multiple times in the same scope."
-    else modify (name :) >> return stmt
+    then return [(line , "Variable " ++ name ++ " declared multiple times in the same scope.")]
+    else modify (name :) >> return []
 doubleDecls (Block statements) = do
   enclosing <- get
   put []
-  scanned <- mapM doubleDecls statements
+  errors <- concat <$> mapM doubleDecls statements
   put enclosing
-  return $ Block scanned
-doubleDecls (FunctionDef name params body) =
-  FunctionDef name params <$> doubleDecls body
-doubleDecls (If cond trueBranch falseBranch) =
-  If cond <$> doubleDecls trueBranch <*> doubleDecls falseBranch
-doubleDecls (While cond body) = While cond <$> doubleDecls body
-doubleDecls stmt = return stmt
+  return errors
+doubleDecls (FunctionDef _ _ body) = doubleDecls body
+doubleDecls (If _ trueBranch falseBranch) = 
+    (++) <$> doubleDecls trueBranch <*> doubleDecls falseBranch
+doubleDecls (While _ body) = doubleDecls body
+doubleDecls _ = return []
 
-doubleDeclarations :: Statement -> Statement
-doubleDeclarations stmt = evalState (doubleDecls stmt) []
+errorProductions :: Statement -> [LoxError]
+errorProductions (StaticError ln err) = [(ln, err)]
+errorProductions (Block statements) = concatMap errorProductions statements
+errorProductions (If _ ifTrue ifFalse) = errorProductions ifTrue ++ errorProductions ifFalse
+errorProductions (While _ body) = errorProductions body
+errorProductions (FunctionDef _ _ body) = errorProductions body
+errorProductions _ = []
+

@@ -17,26 +17,19 @@ import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
 import Data.IORef (newIORef, writeIORef, readIORef)
-import StaticAnalysis (flagErrors)
+import StaticAnalysis (errorsIn)
 
 initialize :: IO ProgramState
 initialize = do
     clockRef <- newIORef $ Function clock
     return $ fromList [("clock", clockRef)]
 
-errorsIn :: Statement -> [LoxError]
-errorsIn (StaticError ln err) = [(ln, err)]
-errorsIn (Block statements) = concatMap errorsIn statements
-errorsIn (If _ ifTrue ifFalse) = errorsIn ifTrue ++ errorsIn ifFalse
-errorsIn (While _ body) = errorsIn body
-errorsIn (FunctionDef _ _ body) = errorsIn body
-errorsIn _ = []
-
 exec :: Program -> LoxAction ExitCode
 exec program = do
-  let errors = concatMap errorsIn (flagErrors program)
+  let errors = errorsIn program
   if null errors
-    then mapM_ interpret program >> return ExitSuccess
+    then loxCatch (mapM_ interpret program >> return ExitSuccess)
+        (\err -> liftIO (reportError err) >> return (ExitFailure 1))
     else liftIO (mapM_ reportError errors) >> return (ExitFailure 1)
 
 interpret :: Statement -> LoxAction ()

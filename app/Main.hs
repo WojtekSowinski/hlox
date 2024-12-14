@@ -1,26 +1,46 @@
+{-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
+
 module Main where
-import System.Environment (getArgs)
-import GHC.IO.Handle (isEOF, hFlush)
-import Control.Monad (when)
-import System.Exit (exitSuccess)
+
+import Control.Monad (void, when)
+import Control.Monad.Except (runExceptT)
+import Control.Monad.State (MonadIO (liftIO), StateT (runStateT))
+import Exec (LoxAction, ProgramState (..), exec)
+import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
+import LoxParser (pStatement)
+import ParserCombinators (ParseOutput (Matched), Parser (runParser))
+import System.Environment (getArgs)
+import System.Exit (exitSuccess)
 
-run :: String -> IO ()
-run = undefined
+run :: String -> LoxAction ()
+run code = do
+  let (_, Matched ast) = runParser pStatement (code, 1)
+  exec ast
 
-runPrompt :: IO ()
+readPromptLine :: IO String
+readPromptLine = do
+  putStr "> "
+  hFlush stdout
+  eof <- isEOF
+  when eof exitSuccess
+  getLine
+
+runPrompt :: LoxAction ()
 runPrompt = do
-    putStr "> "
-    hFlush stdout
-    eof <- isEOF
-    when eof exitSuccess
-    getLine >>= run
-    runPrompt
+  code <- liftIO readPromptLine
+  run code
+  runPrompt
 
-dispatchArgs :: [String] -> IO ()
-dispatchArgs [] = runPrompt
-dispatchArgs [filename] = readFile filename >>= run
-dispatchArgs _ = error "Usage: hlox [script]"
+initState :: ProgramState
+initState = ProgramState {exitOnError = True}
 
 main :: IO ()
-main = getArgs >>= dispatchArgs
+main = do
+  args <- getArgs
+  case args of
+    [] -> void $ runExceptT $ runStateT runPrompt $ initState {exitOnError = False}
+    [filename] -> do
+      code <- readFile filename
+      void $ runExceptT $ runStateT (run code) initState
+    _ -> fail "Usage: hlox [script]"

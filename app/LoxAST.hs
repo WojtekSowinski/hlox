@@ -1,26 +1,47 @@
 module LoxAST where
 
-data Literal
+import Data.Char (toLower)
+import Prelude hiding (EQ, GT, LT)
+
+data Value
   = LitString String
   | LitNumber Double
   | LitBoolean Bool
   | Nil
-  deriving (Show)
+  deriving (Eq)
 
-data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ deriving (Show)
+instance Show Value where
+  show (LitString s) = show s
+  show (LitNumber n) = show n
+  show (LitBoolean b) = map toLower $ show b
+  show Nil = "nil"
+
+data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
+
+instance Show BinOp where
+  show ADD = "+"
+  show SUB = "-"
+  show MULT = "*"
+  show DIV = "/"
+  show LT = "<"
+  show GT = ">"
+  show LEQ = "<="
+  show GEQ = ">="
+  show EQ = "=="
+  show NEQ = "!="
 
 type Identifier = String
 
 data Expression
-  = LitExpr Literal
-  | Variable Identifier
-  | BinOperation {leftOperand :: Expression, operator :: BinOp, rightOperand :: Expression}
+  = LitExpr Value
+  | -- | Variable Identifier
+    BinOperation {leftOperand :: Expression, operator :: BinOp, rightOperand :: Expression}
   | Negative Expression
   | Not Expression
   | And {leftOperand :: Expression, rightOperand :: Expression}
   | Or {leftOperand :: Expression, rightOperand :: Expression}
-  | FunctionCall {function :: Expression, args :: [Expression]}
-  deriving (Show)
+  deriving (-- | FunctionCall {function :: Expression, args :: [Expression]}
+            Show)
 
 data Statement
   = Eval Expression

@@ -67,7 +67,7 @@ pString = do
   mchar '"' <|> panic "Unterminated string"
   return str
 
-pLiteral :: Parser Literal
+pLiteral :: Parser Value
 pLiteral =
   LitBoolean <$> pBool
     <|> LitNumber <$> pNumber
@@ -126,7 +126,7 @@ pExpression = whitespace *> equality <* whitespace
     primaryExp =
       whitespace
         *> ( LitExpr <$> pLiteral
-               <|> Variable <$> pIdentifier
+               -- <|> Variable <$> pIdentifier
                <|> (mchar '(' *> pExpression <* (mchar ')' <|> panic "Mismatched Brackets"))
                <|> panic "Expected expression"
            )
@@ -137,9 +137,15 @@ synchronize err = do
   ln <- getLineNr
   findNext $ void (mchar ';') <|> startOfStatement <|> eof
   optional $ mchar ';'
-  return $ HadError ln err
+  return $ HadError ln $ "Parse error. " ++ err
 
 startOfStatement :: Parser ()
 startOfStatement = do
   word <- consumeWhile isAlpha
   guard (word `elem` ["class", "for", "fun", "if", "print", "return", "var", "while"])
+
+pStatement :: Parser Statement
+pStatement =
+  Print
+    <$> pExpression
+      <-!!!-> synchronize

@@ -16,6 +16,11 @@ type LoxAction = StateT ProgramState (ExceptT LoxError IO)
 
 type LoxError = (Int, String)
 
+whileM_ :: (Monad m) => m Bool -> m a -> m ()
+whileM_ mb ma = do
+  b <- mb
+  when b $ ma >> whileM_ mb ma
+
 isTruthy :: Value -> Bool
 isTruthy Nil = False
 isTruthy (LitBoolean b) = b
@@ -84,8 +89,10 @@ interpret (Block statements) = do
   mapM_ interpret statements
   modify (\s -> s {environment = oldEnv})
 interpret (If cond trueBranch falseBranch) = do
-    condVal <- eval cond
-    interpret $ if isTruthy condVal then trueBranch else falseBranch
+  condVal <- eval cond
+  interpret $ if isTruthy condVal then trueBranch else falseBranch
+interpret (While cond body) = do
+  whileM_ (isTruthy <$> eval cond) (interpret body)
 interpret _ = undefined
 
 eval :: Expression -> LoxAction Value

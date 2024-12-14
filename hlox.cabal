@@ -68,7 +68,6 @@ executable hlox
                       LoxInternals
                       LoxInterpreter
                       LoxParser
-                      OOP
                       ParserCombinators
                       StaticAnalysis
 

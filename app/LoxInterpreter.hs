@@ -15,6 +15,7 @@ import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
 import Data.IORef (newIORef, writeIORef, readIORef)
+import StaticAnalysis (flagErrors)
 
 initialize :: IO ProgramState
 initialize = do
@@ -22,7 +23,7 @@ initialize = do
     return $ fromList [("clock", clockRef)]
 
 errorsIn :: Statement -> [LoxError]
-errorsIn (CouldNotParse ln err) = [(ln, err)]
+errorsIn (StaticError ln err) = [(ln, err)]
 errorsIn (Block statements) = concatMap errorsIn statements
 errorsIn (If _ ifTrue ifFalse) = errorsIn ifTrue ++ errorsIn ifFalse
 errorsIn (While _ body) = errorsIn body
@@ -31,7 +32,7 @@ errorsIn _ = []
 
 exec :: Program -> LoxAction ExitCode
 exec program = do
-  let errors = concatMap errorsIn program
+  let errors = concatMap errorsIn (flagErrors program)
   if null errors
     then mapM_ interpret program >> return ExitSuccess
     else liftIO (mapM_ reportError errors) >> return (ExitFailure 1)
@@ -46,7 +47,7 @@ interpret (Print ex) =
   loxCatch
     (eval ex >>= (liftIO . print))
     (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
-interpret (CouldNotParse _ _) = undefined
+interpret (StaticError _ _) = undefined
 interpret (VarInitialize varName ex) = do
   initVal <- eval ex >>= (liftIO . newIORef)
   modify $ insertVar varName initVal

@@ -69,6 +69,7 @@ executable hlox
                       LoxInternals
                       Functions
                       Scope
+                      StaticAnalysis
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

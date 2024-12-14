@@ -1,14 +1,21 @@
 module ParserCombinators where
 
 import Control.Applicative (Alternative (empty), (<|>))
-import Control.Monad (unless, MonadPlus)
+import Control.Monad (MonadPlus, mfilter)
 import Data.Foldable (foldl')
+import Data.List (isPrefixOf)
 
 type ParseError = String
 
 type ParseState = (String, Int)
 
-newtype Parser t = Parser {runParser :: ParseState -> Either ParseError (ParseState, t)}
+data ParseOutput a
+  = Matched a -- The input was parsed successfully
+  | Failed ParseError -- The input didn't match an expected pattern. Try other parsers
+  | Panicked ParseError -- Error!!! Short-circuit other parsers, enter panic mode, report and synchronize
+  deriving (Functor, Show)
+
+newtype Parser a = Parser {runParser :: ParseState -> (ParseState, ParseOutput a)}
 
 instance Functor Parser where
   fmap :: (a -> b) -> Parser a -> Parser b
@@ -16,75 +23,78 @@ instance Functor Parser where
 
 instance Applicative Parser where
   pure :: a -> Parser a
-  pure a = Parser $ Right . (,a)
+  pure a = Parser (,Matched a)
   (<*>) :: Parser (a -> b) -> Parser a -> Parser b
-  (Parser p1) <*> (Parser p2) = Parser p
+  (Parser p1) <*> p2 = Parser p
     where
-      p st = case p1 st of
-        Left err -> Left err
-        Right (st', f) -> (fmap $ fmap f) (p2 st')
+      p st =
+        case p1 st of
+          (st', Matched f) -> runParser (fmap f p2) st'
+          (st', Failed err) -> (st', Failed err)
+          (st', Panicked err) -> (st', Panicked err)
 
 instance Alternative Parser where
   empty :: Parser a
-  empty = fail "No viable input detected."
+  empty = fail "No viable input."
   (<|>) :: Parser a -> Parser a -> Parser a
   (Parser p1) <|> (Parser p2) = Parser p
     where
       p st = case p1 st of
-        out@(Right _) -> out
-        Left _ -> p2 st
+        (_, Failed _) -> p2 st
+        matchOrPanic -> matchOrPanic
 
 instance Monad Parser where
   (>>=) :: Parser a -> (a -> Parser b) -> Parser b
   (Parser pa) >>= f = Parser p
     where
       p st = case pa st of
-        Left err -> Left err
-        Right (st', a) -> runParser (f a) st'
+        (st', Matched a) -> runParser (f a) st'
+        (st', Failed err) -> (st', Failed err)
+        (st', Panicked err) -> (st', Panicked err)
 
 instance MonadFail Parser where
   fail :: String -> Parser a
-  fail err = Parser (\(_, ln) -> Left $ errOnLine ln err)
+  fail err = Parser (,Failed err)
+
+panic :: ParseError -> Parser a
+panic err = Parser (,Panicked err)
 
 instance MonadPlus Parser
 
-choice :: Alternative f => [f a] -> f a
+choice :: (Alternative f) => [f a] -> f a
 choice = foldl' (<|>) empty
-
-errOnLine :: Int -> ParseError -> ParseError
-errOnLine ln err = "Error on line " ++ show ln ++ ['\n'] ++ err
 
 consumeChar :: Parser Char
 consumeChar = Parser p
   where
-    p ('\n' : cs, ln) = Right ((cs, ln + 1), '\n')
-    p (c : cs, ln) = Right ((cs, ln), c)
-    p ("", ln) = Left $ errOnLine ln "Unexpected end of input"
+    p (c : cs, ln) = ((cs, if c == '\n' then ln + 1 else ln), Matched c)
+    p st@("", _) = (st, Failed "Unexpected end of file.")
 
 eof :: Parser ()
 eof = Parser p
   where
-    p st@("", _) = Right (st, ())
-    p (c : _, ln) = Left $ errOnLine ln "Expected EOF, found " ++ show c
+    p st@("", _) = (st, Matched ())
+    p st = (st, Failed "Expected end of file.")
 
 mchar :: Char -> Parser Char
-mchar expected = Parser p
-  where
-    p ("", ln) = Left $ errOnLine ln "Unexpected end of input"
-    p (c : cs, ln)
-      | c /= expected = Left $ errOnLine ln $ "Expected " ++ show expected ++ ", found " ++ show c
-      | c == '\n' = Right ((cs, ln + 1), '\n')
-      | otherwise = Right ((cs, ln), c)
+mchar expected = mfilter (==expected) consumeChar
+
+count :: Eq a => a -> [a] -> Int
+count = count' 0 where
+    count' acc _ [] = acc
+    count' acc x (y:ys) = count' (acc + if x == y then 1 else 0) x ys
 
 match :: String -> Parser String
-match s = mapM mchar s <|> fail ("Expected " ++ show s)
+match str = Parser p where
+    p st@(input, ln) 
+        | str `isPrefixOf` input = ((remaining, newLn), Matched str)
+        | otherwise = (st, Failed $ "Expected " ++ show str)
+        where
+            remaining = drop (length str) input
+            newLn = ln + count '\n' str
 
 consumeWhile :: (Char -> Bool) -> Parser String
 consumeWhile f = Parser p where
-    p (input, ln) = Right ((remainder, newLn), consumed) where
-        (consumed, remainder) = span f input
+    p (input, ln) =  ((remaining, newLn), Matched consumed) where
+        (consumed, remaining) = span f input
         newLn = count '\n' consumed + ln
-        count x (y:ys) 
-            | x /= y = count x ys
-            | otherwise = count x ys + 1
-        count _ [] = 0

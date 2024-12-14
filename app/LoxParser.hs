@@ -11,10 +11,8 @@ import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
 
-parseTest :: String -> Either ParseError Expression
-parseTest input = case runParser pExpression (input, 1) of
-  Right (_, ex) -> Right ex
-  Left err -> Left err
+parseTest :: String -> ParseOutput Expression
+parseTest input = snd $ runParser pExpression (input, 1)
 
 whitespace :: Parser String
 whitespace = consumeWhile (`elem` " \r\t\n")
@@ -32,10 +30,7 @@ pIdentifier = do
   return $ firstChar : theRest
 
 pBool :: Parser Bool
-pBool =
-  (match "true" >> return True)
-    <|> (match "false" >> return False)
-    <|> fail "Invalid boolean value. Expected \"true\" or \"false\""
+pBool = (match "true" >> return True) <|> (match "false" >> return False)
 
 pNumber :: Parser Double
 pNumber = do
@@ -47,7 +42,7 @@ pString :: Parser String
 pString = do
   mchar '"'
   str <- consumeWhile (/= '\"')
-  mchar '\"' <|> fail "Unterminated string"
+  mchar '\"' <|> panic "Unterminated string"
   return str
 
 pLiteral :: Parser Literal
@@ -110,7 +105,7 @@ pExpression = whitespace *> equality <* whitespace
       whitespace
         *> ( LitExpr <$> pLiteral
                <|> Variable <$> pIdentifier
-               <|> (mchar '(' *> pExpression <* mchar ')')
-               <|> fail "Expected expression"
+               <|> (mchar '(' *> pExpression <* (mchar ')' <|> panic "Mismatched Brackets"))
+               <|> panic "Expected expression"
            )
         <* whitespace

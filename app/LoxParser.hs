@@ -1,7 +1,6 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
--- module LoxParser (program, repl) where
-module LoxParser  where
+module LoxParser (program, repl) where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
@@ -257,9 +256,7 @@ propertyAccess = do
 arguments :: Parser [Expression]
 arguments = do
   mchar '('
-  emptySpace
   args <- expression `sepBy` (emptySpace *> mchar ',' <* emptySpace)
-  emptySpace
   mchar ')' <|> panic "Missing ')' after argument list."
   return args
 

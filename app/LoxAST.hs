@@ -52,7 +52,6 @@ data Statement
   | VarInitialize {name :: Identifier, value :: Expression}
   | If {condition :: Expression, trueBranch :: Statement, falseBranch :: Statement}
   | While {condition :: Expression, body :: Statement}
-  | For {init :: Statement, condition :: Expression, increment :: Statement, body :: Statement}
   | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
   | Return Expression
   | CouldNotParse {lineNr :: Int, errMsg :: String}

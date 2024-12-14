@@ -74,7 +74,8 @@ data LoxClass = LoxClass
   }
 
 findMethod :: Identifier -> LoxClass -> Maybe LoxFunction
-findMethod name LoxClass {methods = methods} = lookup name methods
+findMethod name LoxClass {methods = methods, superclass=super} = 
+    lookup name methods <|> (findMethod name =<< super) 
 
 instance Show LoxClass where
   show :: LoxClass -> String

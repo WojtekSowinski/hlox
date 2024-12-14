@@ -155,16 +155,16 @@ assign (AccessProperty line objExpr prop) ex = do
     _ -> loxThrow ("Can't set properties on " ++ show object ++ " as it is not an object.")
 assign _ _ = undefined
 
-getLocalRef :: Identifier -> Value -> LoxAction (IORef Value)
-getLocalRef name value = do
+getLocalRef :: Identifier -> LoxAction (IORef Value)
+getLocalRef name = do
   oldState <- gets env
   case lookUpLocal name oldState of
     Just ref -> return ref
-    Nothing -> define name value
+    Nothing -> define name undefined
 
 createFunction :: FunctionDef -> LoxAction LoxFunction
 createFunction (FunctionDef name params body) = do
-  funcRef <- getLocalRef name undefined
+  funcRef <- getLocalRef name
   currentState <- get
   let f =
         LoxFunction
@@ -178,13 +178,24 @@ createFunction (FunctionDef name params body) = do
 createFunction _ = undefined
 
 createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
-createClass name super methodDefs = do
+createClass className super methodDefs = do
   superclass <- evalSuperclass super
-  enterNewScope $ map (\(FunctionDef {name = f}) -> (f, undefined)) methodDefs
-  methods <- mapM (\def@(FunctionDef {name = f}) -> (f,) <$> createFunction def) methodDefs
-  exitScope
-  ref <- getLocalRef name undefined
-  liftIO $ writeIORef ref $ Class $ LoxClass name superclass methods
+  currentState <- get
+  let methods =
+        map
+          ( \(FunctionDef name params body) ->
+              ( name,
+                LoxFunction
+                  { fnName = name,
+                    fnParams = params,
+                    fnBody = interpret body,
+                    closure = currentState
+                  }
+              )
+          )
+          methodDefs
+  ref <- getLocalRef className
+  liftIO $ writeIORef ref $ Class $ LoxClass className superclass methods
 
 evalSuperclass :: Maybe Expression -> LoxAction (Maybe LoxClass)
 evalSuperclass Nothing = return Nothing

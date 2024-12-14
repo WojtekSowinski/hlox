@@ -43,9 +43,9 @@ data Expression
   | And {leftOperand :: Expression, rightOperand :: Expression}
   | Or {leftOperand :: Expression, rightOperand :: Expression}
   | Assign {target :: Expression, newValue :: Expression}
+  | FunctionCall {function :: Expression, args :: [Expression]}
   deriving (Show)
 
--- | FunctionCall {function :: Expression, args :: [Expression]}
 data Statement
   = Eval Expression
   | Print Expression

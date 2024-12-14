@@ -148,3 +148,6 @@ testFor pa = Parser p
 
 untilP :: Parser a -> Parser b -> Parser [b]
 untilP cond loop = (calm cond $> []) <|> ((:) <$> loop <*> untilP cond loop)
+
+sepBy :: Parser a -> Parser s -> Parser [a]
+sepBy pa ps = ((:) <$> pa <*> (ps *> sepBy pa ps)) <|> return []

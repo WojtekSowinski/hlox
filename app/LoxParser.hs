@@ -158,14 +158,24 @@ expression = whitespace *> assignment <* whitespace
       modifiers <- many ((propertyAccess <|> functionCall) <* whitespace)
       return $ foldl' (\x f -> f x) expr modifiers
 
-    primaryExp :: Parser Expression =
-      whitespace
-        *> ( Literal <$> literal
-               <|> (This <$> getLineNr <* match "this")
-               <|> Variable <$> getLineNr <*> identifier
+    primaryExp :: Parser Expression = do
+        whitespace
+        line <- getLineNr
+        expr <- Literal <$> literal
+               <|> (This line <$ match "this")
+               <|> Variable line <$> identifier
+               <|> Super line <$> superMethod
                <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
-           )
-        <* whitespace
+        whitespace
+        return expr
+
+superMethod :: Parser Identifier
+superMethod = do
+    keyword "super"
+    whitespace
+    mchar '.' <|> panic "Expected '.' after 'super'."
+    whitespace
+    identifier <|> panic "Expected a superclass method name."
 
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
@@ -214,9 +224,9 @@ varDecl = do
 
 funcDef :: Parser FunctionDef
 funcDef = do
+  line <- getLineNr
   funcName <- identifier
   whitespace
-  line <- getLineNr
   params <- parameters
   body <- whitespace *> block
   if

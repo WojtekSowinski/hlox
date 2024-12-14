@@ -34,6 +34,7 @@ data Expression
   = Literal {value :: Value}
   | Variable {line :: Int, name :: Identifier}
   | This {line :: Int}
+  | Super {line :: Int, property :: Identifier}
   | BinOperation {line :: Int, left :: Expression, operator :: BinOp, right :: Expression}
   | Negative {line :: Int, operand :: Expression}
   | Not {operand :: Expression}

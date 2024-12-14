@@ -94,6 +94,7 @@ eval (Variable line varName) = do
     Nothing -> loxThrow ("Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
 eval (This _) = gets this
+eval (Super _ _) = undefined -- TODO: Interpret the super keyword
 eval (Assign target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx

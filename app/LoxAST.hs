@@ -1,8 +1,10 @@
+{-# LANGUAGE DuplicateRecordFields #-}
+
 module LoxAST where
 
-import Prelude hiding (EQ, GT, LT)
 import LoxInternals (Value)
 import Scope (Identifier)
+import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
 
@@ -21,30 +23,30 @@ instance Show BinOp where
 type Program = [Statement]
 
 data Expression
-  = Literal Value
-  | Variable Identifier
-  | BinOperation {leftOperand :: Expression, operator :: BinOp, rightOperand :: Expression}
-  | Negative Expression
-  | Not Expression
-  | And {leftOperand :: Expression, rightOperand :: Expression}
-  | Or {leftOperand :: Expression, rightOperand :: Expression}
-  | Assign {target :: Expression, newValue :: Expression}
-  | FunctionCall {function :: Expression, args :: [Expression]}
+  = Literal {value :: Value}
+  | Variable {line :: Int, name :: Identifier}
+  | BinOperation {line :: Int, left :: Expression, operator :: BinOp, right :: Expression}
+  | Negative {line :: Int, operand :: Expression}
+  | Not {operand :: Expression}
+  | And {left :: Expression, right :: Expression}
+  | Or {left :: Expression, right :: Expression}
+  | Assign {line :: Int, target :: Expression, newValue :: Expression}
+  | FunctionCall {line :: Int, function :: Expression, args :: [Expression]}
   deriving (Show)
 
 data Statement
-  = Eval Expression
-  | Print Expression
-  | VarInitialize Identifier Expression
-  | If Expression Statement Statement
-  | While Expression Statement
-  | FunctionDef Identifier [Identifier] Statement
-  | Return (Maybe Expression)
-  | StaticError Int String
-  | Block [Statement]
+  = Eval {expr :: Expression}
+  | Print {expr :: Expression}
+  | VarInitialize {line :: Int, name :: Identifier, value :: Expression}
+  | If {cond :: Expression, trueBranch :: Statement, falseBranch :: Statement}
+  | While {cond :: Expression, body :: Statement}
+  | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
+  | Return {line :: Int, returnValue :: Maybe Expression}
+  | StaticError {line :: Int, errMsg :: String}
+  | Block {statements :: [Statement]}
   | NOP
   deriving (Show)
 
 isValidLValue :: Expression -> Bool
-isValidLValue (Variable _) = True
+isValidLValue (Variable _ _) = True
 isValidLValue _ = False

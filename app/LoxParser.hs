@@ -4,7 +4,7 @@
 module LoxParser  where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
-import Control.Monad (guard, mfilter, void, when)
+import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
@@ -102,68 +102,70 @@ binaryOperator ops = fromJust . flip lookup operatorDict <$> choice (map match o
 expression :: Parser Expression
 expression = whitespace *> assignment <* whitespace
   where
-    assignment = do
+    assignment :: Parser Expression = do
       target <- disjunction
+      line <- getLineNr
       value <- optional (mchar '=' *> assignment)
       case value of
         Nothing -> return target
         Just ex ->
           if isValidLValue target
-            then return $ Assign target ex
+            then return $ Assign line target ex
             else panic "Invalid assignment target."
 
-    disjunction = do
+    disjunction :: Parser Expression = do
       firstDisjunct <- conjunction
       disjuncts <- many $ keyword "or" *> conjunction
       return $ foldl' Or firstDisjunct disjuncts
 
-    conjunction = do
+    conjunction :: Parser Expression = do
       firstConjunct <- equality
-      conjuncts <- many $ keyword "or" *> equality
+      conjuncts <- many $ keyword "and" *> equality
       return $ foldl' And firstConjunct conjuncts
 
-    equality = do
+    equality :: Parser Expression = do
       firstComparand <- comparisonExp
       let comparand = (,) <$> binaryOperator ["==", "!="] <*> comparisonExp
       comparands <- many comparand
-      return $ foldl' (\l (op, r) -> BinOperation l op r) firstComparand comparands
+      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstComparand comparands
 
-    comparisonExp = do
+    comparisonExp :: Parser Expression = do
       firstComparand <- sumExp
       let comparand = (,) <$> binaryOperator [">=", ">", "<=", "<"] <*> sumExp
       comparands <- many comparand
-      return $ foldl' (\l (op, r) -> BinOperation l op r) firstComparand comparands
+      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstComparand comparands
 
-    sumExp = do
+    sumExp :: Parser Expression = do
       firstTerm <- productExp
       let term = (,) <$> binaryOperator ["-", "+"] <*> productExp
       terms <- many term
-      return $ foldl' (\l (op, r) -> BinOperation l op r) firstTerm terms
+      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstTerm terms
 
-    productExp = do
+    productExp :: Parser Expression = do
       firstFactor <- unaryExp
       let factor = (,) <$> binaryOperator ["/", "*"] <*> unaryExp
       factors <- many factor
-      return $ foldl' (\l (op, r) -> BinOperation l op r) firstFactor factors
+      return $ foldl' (\l (op, r) -> BinOperation 1 l op r) firstFactor factors
 
-    unaryExp =
+    unaryExp :: Parser Expression =
       mchar '!' *> (Not <$> unaryExp)
-        <|> mchar '-' *> (Negative <$> unaryExp)
+        <|> mchar '-' *> (Negative <$> getLineNr <*> unaryExp)
         <|> functionCall
 
-    functionCall = do
+    functionCall :: Parser Expression = do
+      line <- getLineNr
       func <- primaryExp
       args <- optional arguments <* whitespace
       case args of
         Nothing -> return func
-        Just argList -> do
-            when (length argList > 255) $ panic "Can't have more than 255 arguments."
-            return $ FunctionCall func argList
+        Just argList -> if length argList > 255
+            then panic "Can't have more than 255 arguments."
+            else return $ FunctionCall line func argList
 
-    primaryExp =
+    primaryExp :: Parser Expression =
       whitespace
         *> ( Literal <$> literal
-               <|> Variable <$> identifier
+               <|> Variable <$> getLineNr <*> identifier
                <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
            )
         <* whitespace
@@ -205,12 +207,13 @@ declaration = varDecl <|> funcDef
 varDecl :: Parser Statement
 varDecl = do
   keyword "var"
+  line <- getLineNr
   whitespace
   varName <- identifier
   whitespace
   initValue <- optional (mchar '=' *> expression)
   mchar ';' <|> panic "Expected ';' after a variable declaration."
-  return $ VarInitialize varName $ fromMaybe (Literal Nil) initValue
+  return $ VarInitialize line varName $ fromMaybe (Literal Nil) initValue
 
 funcDef :: Parser Statement
 funcDef = do
@@ -243,9 +246,10 @@ parameters = do
 returnStatement :: Parser Statement
 returnStatement = do
     keyword "return"
+    line <- getLineNr
     value <- optional expression
     mchar ';' <|> panic "Expected ';' after a return statement."
-    return $ Return value
+    return $ Return line value
 
 printStatement :: Parser Statement
 printStatement = do
@@ -264,7 +268,7 @@ block :: Parser Statement
 block = do
   mchar '{'
   let endOfBlock = void (testFor (mchar '}')) <|> eof
-  statements <- untilP endOfBlock statement 
+  statements <- untilP endOfBlock statement
   mchar '}' <|> panic "Missing '}'."
   return $ Block statements
 

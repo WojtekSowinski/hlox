@@ -8,9 +8,9 @@ flagErrors :: Program -> Program
 flagErrors = map (invalidReturns None . recursiveVars . doubleDeclarations)
 
 recursiveVars :: Statement -> Statement
-recursiveVars stmt@(VarInitialize name expr) =
+recursiveVars stmt@(VarInitialize line name expr) =
   if expr `refersTo` name
-    then StaticError 1 $ "Declaration of variable " ++ name ++ " refers to itself."
+    then StaticError line $ "Declaration of variable " ++ name ++ " refers to itself."
     else stmt
 recursiveVars (If cond trueBranch falseBranch) =
   If cond (recursiveVars trueBranch) (recursiveVars falseBranch)
@@ -23,20 +23,20 @@ recursiveVars (Block statements) =
 recursiveVars stmt = stmt
 
 refersTo :: Expression -> Identifier -> Bool
-refersTo (Variable var) name = var == name
+refersTo (Variable _ var) name = var == name
 refersTo (Literal _) _ = False
-refersTo (BinOperation left _ right) name = (left `refersTo` name) || (right `refersTo` name)
+refersTo (BinOperation _ left _ right) name = (left `refersTo` name) || (right `refersTo` name)
 refersTo (And left right) name = (left `refersTo` name) || (right `refersTo` name)
 refersTo (Or left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Assign left right) name = (left `refersTo` name) || (right `refersTo` name)
-refersTo (Negative expr) name = expr `refersTo` name
+refersTo (Assign _ left right) name = (left `refersTo` name) || (right `refersTo` name)
+refersTo (Negative _ expr) name = expr `refersTo` name
 refersTo (Not expr) name = expr `refersTo` name
-refersTo (FunctionCall fn args) name = any (`refersTo` name) (fn : args)
+refersTo (FunctionCall _ fn args) name = any (`refersTo` name) (fn : args)
 
 data FunctionType = None | Function
 
 invalidReturns :: FunctionType -> Statement -> Statement
-invalidReturns None (Return _) = StaticError 1 "Can't return from outside a function."
+invalidReturns None (Return line _) = StaticError line "Can't return from outside a function."
 invalidReturns _ (FunctionDef name params body) =
   FunctionDef name params (invalidReturns Function body)
 invalidReturns t (If cond trueBranch falseBranch) =
@@ -48,10 +48,10 @@ invalidReturns t (Block statements) =
 invalidReturns _ stmt = stmt
 
 doubleDecls :: Statement -> State [Identifier] Statement
-doubleDecls stmt@(VarInitialize name _) = do
+doubleDecls stmt@(VarInitialize line name _) = do
   found <- get
   if name `elem` found
-    then return $ StaticError 1 $ "Variable " ++ name ++ " declared multiple times in the same scope."
+    then return $ StaticError line $ "Variable " ++ name ++ " declared multiple times in the same scope."
     else modify (name :) >> return stmt
 doubleDecls (Block statements) = do
   enclosing <- get

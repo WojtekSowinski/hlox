@@ -3,20 +3,20 @@
 module Main where
 
 import Control.Monad (void, when)
-import Control.Monad.Except (runExceptT)
-import Control.Monad.State (MonadIO (liftIO), StateT (runStateT))
-import Exec (LoxAction, ProgramState (..), exec)
+import Control.Monad.State (MonadIO (liftIO))
+import Exec (LoxAction, ProgramState (..), exec, runLoxAction)
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
-import LoxParser (pStatement)
+import LoxParser (pProgram)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
 import System.Exit (exitSuccess)
+import qualified Data.Map as Map
 
 run :: String -> LoxAction ()
 run code = do
-  let (_, Matched ast) = runParser pStatement (code, 1)
-  exec ast
+  let (_, Matched statements) = runParser pProgram (code, 1)
+  mapM_ exec statements
 
 readPromptLine :: IO String
 readPromptLine = do
@@ -26,21 +26,24 @@ readPromptLine = do
   when eof exitSuccess
   getLine
 
-runPrompt :: LoxAction ()
-runPrompt = do
+runPrompt :: ProgramState -> IO ()
+runPrompt st = do
   code <- liftIO readPromptLine
-  run code
-  runPrompt
+  newState <- runLoxAction (run code) st
+  runPrompt newState
 
 initState :: ProgramState
-initState = ProgramState {exitOnError = True}
+initState = ProgramState {
+    exitOnError = True,
+    environment = Map.empty
+    }
 
 main :: IO ()
 main = do
   args <- getArgs
   case args of
-    [] -> void $ runExceptT $ runStateT runPrompt $ initState {exitOnError = False}
+    [] -> runPrompt $ initState {exitOnError = False}
     [filename] -> do
       code <- readFile filename
-      void $ runExceptT $ runStateT (run code) initState
+      void $ runLoxAction (run code) initState
     _ -> fail "Usage: hlox [script]"

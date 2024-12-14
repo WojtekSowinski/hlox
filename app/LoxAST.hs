@@ -33,29 +33,32 @@ instance Show BinOp where
 type Identifier = String
 
 data Expression
-  = LitExpr Value
-  | -- | Variable Identifier
-    BinOperation {leftOperand :: Expression, operator :: BinOp, rightOperand :: Expression}
+  = Literal Value
+  | Variable Identifier
+  | BinOperation {leftOperand :: Expression, operator :: BinOp, rightOperand :: Expression}
   | Negative Expression
   | Not Expression
   | And {leftOperand :: Expression, rightOperand :: Expression}
   | Or {leftOperand :: Expression, rightOperand :: Expression}
-  deriving (-- | FunctionCall {function :: Expression, args :: [Expression]}
-            Show)
+  | Assign {target :: Expression, newValue :: Expression}
+  deriving (Show)
 
+-- | FunctionCall {function :: Expression, args :: [Expression]}
 data Statement
   = Eval Expression
   | Print Expression
   | Scope Block
-  | VarDeclare Identifier
   | VarInitialize {name :: Identifier, value :: Expression}
-  | VarAssign {name :: Identifier, value :: Expression}
   | If {condition :: Expression, trueBranch :: Block, falseBranch :: Block}
   | While {condition :: Expression, body :: Block}
   | For {init :: Statement, condition :: Expression, increment :: Statement, body :: Block}
   | FunctionDef {name :: Identifier, params :: [Identifier], body :: Block}
   | Return Expression
-  | HadError {lineNr :: Int, errMsg :: String}
+  | CouldNotParse {lineNr :: Int, errMsg :: String}
   deriving (Show)
 
 newtype Block = Block [Statement] deriving (Show)
+
+isValidLValue :: Expression -> Bool
+isValidLValue (Variable _) = True
+isValidLValue _ = False

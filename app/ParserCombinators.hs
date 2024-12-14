@@ -1,8 +1,8 @@
-module Parser where
+module ParserCombinators where
 
 import Control.Applicative (Alternative (empty), (<|>))
-import Data.Char (isDigit)
-import Control.Monad (when, unless)
+import Data.Char (isDigit, isAlpha)
+import Control.Monad (unless)
 
 type ParseError = String
 
@@ -52,15 +52,9 @@ errOnLine ln err = "Error on line " ++ show ln ++ ['\n'] ++ err
 consumeChar :: Parser Char
 consumeChar = Parser p
   where
-    p ("", ln) = Left $ errOnLine ln "Unexpected end of input"
     p ('\n' : cs, ln) = Right ((cs, ln + 1), '\n')
     p (c : cs, ln) = Right ((cs, ln), c)
-
-peek :: Parser Char
-peek = Parser p
-  where
     p ("", ln) = Left $ errOnLine ln "Unexpected end of input"
-    p st@(c:_, _) = Right (st, c)
 
 eof :: Parser ()
 eof = Parser p
@@ -89,4 +83,15 @@ digit = do
 letter :: Parser Char
 letter = do 
     c <- consumeChar
+    unless (isAlpha c) $ fail $ "Expected a letter, found " ++ show c
     return c
+
+consumeWhile :: (Char -> Bool) -> Parser String
+consumeWhile f = Parser p where
+    p (input, ln) = Right ((remainder, newLn), consumed) where
+        (consumed, remainder) = span f input
+        newLn = count '\n' consumed + ln
+        count x (y:ys) 
+            | x /= y = count x ys
+            | otherwise = count x ys + 1
+        count _ [] = 0

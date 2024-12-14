@@ -115,3 +115,15 @@ consumeWhile f = Parser p
       where
         (consumed, remaining) = span f input
         newLn = count '\n' consumed + ln
+
+getLineNr :: Parser Int
+getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
+
+-- | Consume input up to (but not including) the next occurance of the pattern
+--  matched by the supplied parser. If the pattern is not found, this parser fails.
+findNext :: Parser a -> Parser ()
+findNext (Parser pa) = Parser p
+  where
+    p st = case pa st of
+      (_, Matched _) -> (st, Matched ())
+      _ -> p $ fst $ runParser consumeChar st

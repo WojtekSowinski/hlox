@@ -2,39 +2,54 @@ module Exec where
 
 import Control.Monad.State
 import Control.Monad.Trans.Except (ExceptT, catchE, runExceptT, throwE)
+import Data.Map qualified as Map
 import LoxAST
 import System.Exit (exitFailure)
-import qualified Data.Map as Map
 import Prelude hiding (EQ, GT, LT)
 
-data ProgramState = ProgramState {
-    exitOnError :: Bool,
+data ProgramState = ProgramState
+  { exitOnError :: Bool,
     environment :: Map.Map Identifier Value
-    }
+  }
 
-type LoxAction = StateT ProgramState (ExceptT RuntimeError IO)
+type LoxAction = StateT ProgramState (ExceptT LoxError IO)
 
-type RuntimeError = (Int, String)
+type LoxError = (Int, String)
 
 isTruthy :: Value -> Bool
 isTruthy Nil = False
 isTruthy (LitBoolean b) = b
 isTruthy _ = True
 
+reportError :: LoxError -> IO ()
+reportError (ln, err) = do
+  let errorBanner = "\027[1;31mERROR on line " ++ show ln ++ ": \027[22m"
+  putStrLn $ errorBanner ++ err ++ "\027[0m"
+
+exec :: [Statement] -> LoxAction ()
+exec program = do
+  let errors = [(ln, err) | (CouldNotParse ln err) <- program]
+  liftIO $ mapM_ reportError errors
+  if null errors
+    then mapM_ interpret program
+    else do
+      setToExit <- gets exitOnError
+      when setToExit $ liftIO exitFailure
+
 runLoxAction :: LoxAction a -> ProgramState -> IO ProgramState
 runLoxAction action st = do
   result <- runExceptT $ runStateT action st
   case result of
-    Left (ln, err) -> do
-      liftIO $ putStrLn $ "ERROR on line " ++ show ln ++ ": " ++ err
+    Left err -> do
+      liftIO $ reportError err
       when (exitOnError st) exitFailure
       return st
     Right (_, st') -> return st'
 
-loxThrow :: RuntimeError -> LoxAction a
+loxThrow :: LoxError -> LoxAction a
 loxThrow = lift . throwE
 
-loxCatch :: LoxAction a -> (RuntimeError -> LoxAction a) -> LoxAction a
+loxCatch :: LoxAction a -> (LoxError -> LoxAction a) -> LoxAction a
 loxCatch action handler = do
   st <- get
   let ioHandler a = runStateT (handler a) st
@@ -42,20 +57,20 @@ loxCatch action handler = do
   put s
   return a
 
-exec :: Statement -> LoxAction ()
-exec (Eval ex) =
+interpret :: Statement -> LoxAction ()
+interpret (Eval ex) =
   loxCatch
     (void $ eval ex)
-    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression. " ++ err))
-exec (Print ex) =
+    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
+interpret (Print ex) =
   loxCatch
     (eval ex >>= (liftIO . print))
-    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression. " ++ err))
-exec (CouldNotParse ln err) = loxThrow (ln, "Couldn't parse statement. " ++ err)
-exec (VarInitialize varName ex) = do
-    initVal <- eval ex
-    modify (\s -> s {environment = Map.insert varName initVal $ environment s})
-exec _ = undefined
+    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
+interpret (CouldNotParse _ _) = undefined
+interpret (VarInitialize varName ex) = do
+  initVal <- eval ex
+  modify (\s -> s {environment = Map.insert varName initVal $ environment s})
+interpret _ = undefined
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
@@ -82,19 +97,19 @@ eval (BinOperation leftEx op rightEx) = do
       (LitNumber n1, LitNumber n2) -> return $ calc n1 op n2
       _ -> loxThrow (1, "Operands of '" ++ show op ++ "' must be numbers.")
 eval (Variable varName) = do
-    env <- gets environment
-    case Map.lookup varName env of
-        Nothing -> loxThrow (1, "Undefined Variable " ++ show varName ++ ".")
-        Just val -> return val
+  env <- gets environment
+  case Map.lookup varName env of
+    Nothing -> loxThrow (1, "Undefined Variable " ++ show varName ++ ".")
+    Just val -> return val
 eval (Assign target ex) = assign target ex
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do
-    env <- gets environment
-    when (Map.notMember varName env) $ loxThrow (1, "Undefined variable " ++ show varName ++ ".")
-    newVal <- eval ex
-    modify (\s -> s {environment = Map.insert varName newVal env})
-    return newVal
+  env <- gets environment
+  when (Map.notMember varName env) $ loxThrow (1, "Undefined variable " ++ show varName ++ ".")
+  newVal <- eval ex
+  modify (\s -> s {environment = Map.insert varName newVal env})
+  return newVal
 assign _ _ = undefined
 
 add :: Value -> Value -> LoxAction Value

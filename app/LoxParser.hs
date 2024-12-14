@@ -5,16 +5,12 @@ module LoxParser where
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
+import Data.Functor (($>))
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
 import LoxAST
 import ParserCombinators
 import Prelude hiding (EQ, GT, LT)
-import Control.Monad.Trans.Except (throwE)
-import Exec (loxThrow)
-
-parseTest :: String -> ParseOutput Expression
-parseTest input = snd $ runParser pExpression (input, 1)
 
 whitespace :: Parser String
 whitespace = consumeWhile (`elem` " \r\t\n")
@@ -101,10 +97,11 @@ pExpression = whitespace *> assignment <* whitespace
       value <- optional (mchar '=' *> assignment)
       case value of
         Nothing -> return target
-        Just ex -> if isValidLValue target
+        Just ex ->
+          if isValidLValue target
             then return $ Assign target ex
             else panic "Invalid assignment target."
-      
+
     equality = do
       firstComparand <- comparisonExp
       let comparand = (,) <$> pOperator ["==", "!="] <*> comparisonExp
@@ -144,11 +141,10 @@ pExpression = whitespace *> assignment <* whitespace
 
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
-  consumeChar
   ln <- getLineNr
   findNext $ void (mchar ';') <|> startOfStatement <|> eof
   optional $ mchar ';'
-  return $ CouldNotParse ln err
+  return $ CouldNotParse ln ("Parse error - " ++ err)
 
 startOfStatement :: Parser ()
 startOfStatement = do
@@ -156,9 +152,7 @@ startOfStatement = do
   guard (word `elem` ["class", "for", "fun", "if", "print", "return", "var", "while"])
 
 pStatement :: Parser Statement
-pStatement =
-  (pDeclaration <|> pCommand <|> panic "Invalid syntax.")
-    <-!!!-> synchronize
+pStatement = pDeclaration <|> pCommand <|> (consumeChar *> panic "Invalid syntax.")
 
 varDecl :: Parser Statement
 varDecl = do
@@ -175,21 +169,23 @@ pDeclaration = varDecl
 
 pCommand :: Parser Statement
 pCommand =
-  expressionStatement <|> printStatement
+  printStatement <|> expressionStatement
 
 printStatement :: Parser Statement
 printStatement = do
-    match "print" 
-    expr <- pExpression 
-    mchar ';' <|> panic "Expected ';' after a print statement."
-    return $ Print expr
+  match "print"
+  expr <- pExpression
+  mchar ';' <|> panic "Expected ';' after a print statement."
+  return $ Print expr
 
 expressionStatement :: Parser Statement
 expressionStatement = do
-    expr <- pExpression
-    mchar ';' <|> panic "Expected ';' after an expression."
-    return $ Eval expr
+  expr <- pExpression
+  mchar ';' <|> panic "Expected ';' after an expression."
+  return $ Eval expr
 
+notFinished :: Parser Bool
+notFinished = (eof $> False) <|> return True
 
 pProgram :: Parser [Statement]
-pProgram = many pStatement <* eof
+pProgram = whileM notFinished (pStatement <-!!!-> synchronize)

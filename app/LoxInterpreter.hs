@@ -9,10 +9,14 @@ where
 
 import Control.Monad.State
 import LoxAST
+import LoxInternals
 import Scope
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
-import LoxInternals
+import Functions (clock)
+
+initState :: ProgramState
+initState = fromList [("clock", Function clock)]
 
 errorsIn :: Statement -> [LoxError]
 errorsIn (CouldNotParse ln err) = [(ln, err)]
@@ -84,10 +88,17 @@ eval (Variable varName) = do
     Just val -> return val
 eval (Assign target ex) = assign target ex
 eval (FunctionCall funcEx argExs) = do
-    func <- eval funcEx
-    args <- mapM eval argExs
-    -- call func args
-    undefined
+  func <- eval funcEx
+  args <- mapM eval argExs
+  case func of
+    Function f -> checkArity f args >> call f args
+    _ -> loxThrow (1, "Can't call " ++ show func ++ " as it is not a function.")
+
+checkArity :: (LoxCallable f) => f -> [Value] -> LoxAction ()
+checkArity f args = do
+  let argNum = length args
+  let expected = arity f
+  when (argNum /= expected) $ loxThrow (1, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable varName) ex = do

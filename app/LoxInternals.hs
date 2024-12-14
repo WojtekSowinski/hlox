@@ -74,8 +74,8 @@ data LoxClass = LoxClass
   }
 
 findMethod :: Identifier -> LoxClass -> Maybe LoxFunction
-findMethod name LoxClass {methods = methods, superclass=super} = 
-    lookup name methods <|> (findMethod name =<< super) 
+findMethod name LoxClass {methods = methods, superclass=super} =
+    lookup name methods <|> (findMethod name =<< super)
 
 instance Show LoxClass where
   show :: LoxClass -> String
@@ -83,11 +83,14 @@ instance Show LoxClass where
 
 instance LoxCallable LoxClass where
   call :: LoxClass -> [Value] -> LoxAction Value
-  call c _ = do
+  call c args = do
     props <- liftIO $ newIORef Map.empty
-    return $ Object LoxInstance {klass = c, properties = props}
+    let inst = LoxInstance {klass = c, properties = props}
+    case findMethod "init" c of
+        Nothing -> return $ Object inst
+        Just initMethod -> call (bind inst initMethod) args
   arity :: LoxClass -> Int
-  arity _ = 0
+  arity c = maybe 0 arity (findMethod "init" c)
 
 data LoxFunction = LoxFunction
   { fnName :: Identifier,

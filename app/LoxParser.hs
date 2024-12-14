@@ -222,7 +222,7 @@ funcDef = do
   if
     | length params > 255 -> return $ TooManyParams line
     | hasDuplicates params -> return $ DuplicateParams line
-    | otherwise -> return $ FunctionDef funcName params body
+    | otherwise -> return $ FunctionDef line funcName params body
 
 hasDuplicates :: (Eq a) => [a] -> Bool
 hasDuplicates [] = False

@@ -53,7 +53,7 @@ interpret (If cond trueBranch falseBranch) = do
   condVal <- eval cond
   interpret $ if isTruthy condVal then trueBranch else falseBranch
 interpret (While cond body) = whileM_ (isTruthy <$> eval cond) (interpret body)
-interpret (FunctionDecl f) = void $ createFunction f
+interpret (FunctionDecl f) = void $ makeTopLevelFunction f
 interpret (ClassDecl line name super methods) =
   setLine line >> createClass name super methods
 interpret (Return _ (Just ex)) = do
@@ -162,8 +162,8 @@ getLocalRef name = do
     Just ref -> return ref
     Nothing -> define name undefined
 
-createFunction :: FunctionDef -> LoxAction LoxFunction
-createFunction (FunctionDef name params body) = do
+makeTopLevelFunction :: FunctionDef -> LoxAction LoxFunction
+makeTopLevelFunction (FunctionDef _ name params body) = do
   funcRef <- getLocalRef name
   currentState <- get
   let f =
@@ -175,25 +175,22 @@ createFunction (FunctionDef name params body) = do
           }
   liftIO $ writeIORef funcRef $ Function f
   return f
-createFunction _ = undefined
+makeTopLevelFunction _ = undefined
+
+makeMethod :: ProgramState -> FunctionDef -> (Identifier, LoxFunction)
+makeMethod closure (FunctionDef _ name params body) = (name, fn) where
+    fnBody = if name == "init"
+        then acceptReturn (interpret body) >> (gets this >>= loxReturn) 
+        else interpret body
+    fn = LoxFunction {fnParams=params, fnName=name, fnBody=fnBody, closure=closure}
+makeMethod _ _ = undefined
+
 
 createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
 createClass className super methodDefs = do
   superclass <- evalSuperclass super
   currentState <- get
-  let methods =
-        map
-          ( \(FunctionDef name params body) ->
-              ( name,
-                LoxFunction
-                  { fnName = name,
-                    fnParams = params,
-                    fnBody = interpret body,
-                    closure = currentState
-                  }
-              )
-          )
-          methodDefs
+  let methods = map (makeMethod currentState) methodDefs
   ref <- getLocalRef className
   liftIO $ writeIORef ref $ Class $ LoxClass className superclass methods
 

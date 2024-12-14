@@ -42,7 +42,6 @@ interpret (Print ex) =
   loxCatch
     (eval ex >>= (liftIO . print))
     (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
-interpret (StaticError _ _) = undefined
 interpret (VarInitialize _ varName ex) = do
   initVal <- eval ex >>= (liftIO . newIORef)
   modify $ insertVar varName initVal
@@ -67,6 +66,9 @@ interpret (Return _ (Just ex)) = do
   retVal <- eval ex
   loxReturn retVal
 interpret (Return _ Nothing) = loxReturn Nil
+interpret (CouldNotParse _ _) = undefined
+interpret (TooManyParams _) = undefined
+interpret (DuplicateParams _) = undefined
 
 eval :: Expression -> LoxAction Value
 eval (Literal val) = return val
@@ -98,6 +100,7 @@ eval (FunctionCall line funcEx argExs) = do
   case func of
     Function f -> checkArity line f args >> call f args
     _ -> loxThrow (line, "Can't call " ++ show func ++ " as it is not a function.")
+eval (TooManyArgs _) = undefined
 
 applyBinOp :: Int -> Value -> BinOp -> Value -> LoxAction Value
 applyBinOp _ left EQ right = return $ LitBoolean $ left == right

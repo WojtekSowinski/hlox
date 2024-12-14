@@ -1,4 +1,5 @@
 {-# OPTIONS_GHC -Wno-unused-do-bind #-}
+{-# LANGUAGE MultiWayIf #-}
 
 -- module LoxParser (program, repl) where
 module LoxParser  where
@@ -159,7 +160,7 @@ expression = whitespace *> assignment <* whitespace
       case args of
         Nothing -> return func
         Just argList -> if length argList > 255
-            then panic "Can't have more than 255 arguments."
+            then return $ TooManyArgs line
             else return $ FunctionCall line func argList
 
     primaryExp :: Parser Expression =
@@ -174,7 +175,7 @@ synchronize :: ParseError -> Parser Statement
 synchronize err = do
   ln <- getLineNr
   findNext $ void (mchar ';') <|> testFor startOfStatement <|> eof
-  return $ StaticError ln ("Parse error - " ++ err)
+  return $ CouldNotParse ln err
 
 startOfStatement :: Parser ()
 startOfStatement = do
@@ -221,9 +222,15 @@ funcDef = do
   whitespace
   funcName <- identifier
   whitespace
+  line <- getLineNr
   params <- parameters
-  body <- whitespace *> command
-  return $ FunctionDef funcName params body
+  if | length params > 255 -> return $ TooManyParams line
+     | hasDuplicates params -> return $ DuplicateParams line
+     | otherwise -> FunctionDef funcName params <$> (whitespace *> command)
+
+hasDuplicates :: Eq a => [a] -> Bool
+hasDuplicates [] = False
+hasDuplicates (x:xs) = x `elem` xs || hasDuplicates xs
 
 arguments :: Parser [Expression]
 arguments = do

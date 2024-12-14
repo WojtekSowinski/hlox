@@ -159,23 +159,24 @@ expression = whitespace *> assignment <* whitespace
       return $ foldl' (\x f -> f x) expr modifiers
 
     primaryExp :: Parser Expression = do
-        whitespace
-        line <- getLineNr
-        expr <- Literal <$> literal
-               <|> (This line <$ match "this")
-               <|> Variable line <$> identifier
-               <|> Super line <$> superMethod
-               <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
-        whitespace
-        return expr
+      whitespace
+      line <- getLineNr
+      expr <-
+        Literal <$> literal
+          <|> (This line <$ match "this")
+          <|> Variable line <$> identifier
+          <|> Super line <$> superMethod
+          <|> (mchar '(' *> expression <* (mchar ')' <|> panic "Mismatched Brackets."))
+      whitespace
+      return expr
 
 superMethod :: Parser Identifier
 superMethod = do
-    keyword "super"
-    whitespace
-    mchar '.' <|> panic "Expected '.' after 'super'."
-    whitespace
-    identifier <|> panic "Expected a superclass method name."
+  keyword "super"
+  whitespace
+  mchar '.' <|> panic "Expected '.' after 'super'."
+  whitespace
+  identifier <|> panic "Expected a superclass method name."
 
 synchronize :: ParseError -> Parser Statement
 synchronize err = do
@@ -229,10 +230,12 @@ funcDef = do
   whitespace
   params <- parameters
   body <- whitespace *> block
-  if
-    | length params > 255 -> return $ TooManyParams line
-    | hasDuplicates params -> return $ DuplicateParams line
-    | otherwise -> return $ FunctionDef line funcName params body
+  let wrapper =
+        if
+          | length params > 255 -> TooManyParams
+          | hasDuplicates params -> DuplicateParams
+          | otherwise -> FunctionDef
+  return $ wrapper line funcName params body
 
 hasDuplicates :: (Eq a) => [a] -> Bool
 hasDuplicates [] = False

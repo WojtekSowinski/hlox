@@ -7,6 +7,7 @@ module LoxInternals
     LoxClass (..),
     LoxInstance (..),
     Value (..),
+    initialize,
     define,
     enterNewScope,
     exitScope,
@@ -34,11 +35,11 @@ import Data.Char (toLower)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.Map qualified as Map
 import Environment
-import ParserCombinators (Location)
+import ParserCombinators (Location (Location))
 
 data ProgramState = ProgramState
   { env :: Environment (IORef Value),
-    lineNumber :: Location,
+    location :: Location,
     this :: Value,
     super :: LoxClass
   }
@@ -48,6 +49,15 @@ type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
 type LoxError = (Location, String)
 
 data ShortCircuit = Errored LoxError | Returned Value
+
+initialize :: [(Identifier, IORef Value)] -> ProgramState
+initialize globals =
+  ProgramState
+    { env = fromList globals,
+      location = Location 1 1,
+      this = Nil,
+      super = undefined
+    }
 
 define :: Identifier -> Value -> LoxAction (IORef Value)
 define name value = do
@@ -65,7 +75,7 @@ exitScope :: LoxAction ()
 exitScope = modify (\s -> s {env = discardLocal (env s)})
 
 setLine :: Location -> LoxAction ()
-setLine n = modify (\s -> s {lineNumber = n})
+setLine n = modify (\s -> s {location = n})
 
 class (Show f) => LoxCallable f where
   call :: f -> [Value] -> LoxAction Value
@@ -185,7 +195,7 @@ runLoxAction = runStateT . runExceptT
 
 loxThrow :: String -> LoxAction a
 loxThrow errMsg = do
-  line <- gets lineNumber
+  line <- gets location
   throwE $ Errored (line, errMsg)
 
 loxCatch :: LoxAction a -> (LoxError -> LoxAction a) -> LoxAction a

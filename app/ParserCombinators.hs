@@ -11,8 +11,8 @@ type ParseState = (String, Int)
 
 data ParseOutput a
   = Matched a -- The input was parsed successfully
-  | Failed ParseError -- The input didn't match an expected pattern. Try other parsers
-  | Panicked ParseError -- Error!!! Short-circuit other parsers, enter panic mode, report and synchronize
+  | Failed ParseError -- The input didn't match the expected pattern. Try other parsers or panic
+  | Panicked ParseError -- Error!!! Short-circuit other parsers, enter panic mode, report the error and synchronize
   deriving (Functor, Show)
 
 newtype Parser a = Parser {runParser :: ParseState -> (ParseState, ParseOutput a)}
@@ -35,7 +35,7 @@ instance Applicative Parser where
 
 instance Alternative Parser where
   empty :: Parser a
-  empty = fail "No viable input."
+  empty = fail "Input didn't match any expected pattern."
   (<|>) :: Parser a -> Parser a -> Parser a
   (Parser p1) <|> (Parser p2) = Parser p
     where
@@ -56,8 +56,21 @@ instance MonadFail Parser where
   fail :: String -> Parser a
   fail err = Parser (,Failed err)
 
+-- | A parser that enters panic mode.
+--  Use to signal the need to stop parsing, report an error and synchronize
 panic :: ParseError -> Parser a
 panic err = Parser (,Panicked err)
+
+-- | Recover from a panic or unhandled failure
+(<-!!!->) :: Parser a -> (ParseError -> Parser a) -> Parser a
+Parser pa <-!!!-> sync = Parser p
+  where
+    p st = case pa st of
+      success@(_, Matched _) -> success
+      (st', Panicked err) -> runParser (sync err) st'
+      (st', Failed err) -> runParser (sync $ "Unhandled parser failure: " ++ err) st'
+
+infixl 3 <-!!!-> -- <-!!!-> has the same precedence and associativity as <|>
 
 instance MonadPlus Parser
 
@@ -77,24 +90,28 @@ eof = Parser p
     p st = (st, Failed "Expected end of file.")
 
 mchar :: Char -> Parser Char
-mchar expected = mfilter (==expected) consumeChar
+mchar expected = mfilter (== expected) consumeChar
 
-count :: Eq a => a -> [a] -> Int
-count = count' 0 where
+count :: (Eq a) => a -> [a] -> Int
+count = count' 0
+  where
     count' acc _ [] = acc
-    count' acc x (y:ys) = count' (acc + if x == y then 1 else 0) x ys
+    count' acc x (y : ys) = count' (acc + if x == y then 1 else 0) x ys
 
 match :: String -> Parser String
-match str = Parser p where
-    p st@(input, ln) 
-        | str `isPrefixOf` input = ((remaining, newLn), Matched str)
-        | otherwise = (st, Failed $ "Expected " ++ show str)
-        where
-            remaining = drop (length str) input
-            newLn = ln + count '\n' str
+match str = Parser p
+  where
+    p st@(input, ln)
+      | str `isPrefixOf` input = ((remaining, newLn), Matched str)
+      | otherwise = (st, Failed $ "Expected " ++ show str)
+      where
+        remaining = drop (length str) input
+        newLn = ln + count '\n' str
 
 consumeWhile :: (Char -> Bool) -> Parser String
-consumeWhile f = Parser p where
-    p (input, ln) =  ((remaining, newLn), Matched consumed) where
+consumeWhile f = Parser p
+  where
+    p (input, ln) = ((remaining, newLn), Matched consumed)
+      where
         (consumed, remaining) = span f input
         newLn = count '\n' consumed + ln

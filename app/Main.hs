@@ -5,7 +5,7 @@ module Main where
 import Control.Monad (void, when)
 import Control.Monad.State (MonadIO (liftIO))
 import Data.Map qualified as Map
-import Exec (LoxAction, ProgramState (..), exec, runLoxAction)
+import LoxInterpreter (LoxAction, ProgramState (..), exec, runLoxAction)
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
 import LoxParser (pProgram, pRepl)

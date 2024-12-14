@@ -1,13 +1,13 @@
 module OOP where
 
 import Control.Monad.Trans (liftIO)
-import Data.IORef (IORef, modifyIORef, readIORef)
+import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.Map qualified as Map
 import Environment (Identifier)
 import Functions (LoxCallable)
-import LoxInternals (LoxAction, LoxCallable (..), LoxObject (..), Value, loxThrow)
+import LoxInternals (LoxAction, LoxCallable (..), LoxObject (..), Value (Object), loxThrow)
 
-data LoxClass = LoxClass {name :: Identifier, superclass :: LoxClass}
+data LoxClass = LoxClass {name :: Identifier, superclass :: Maybe LoxClass}
 
 instance Show LoxClass where
   show :: LoxClass -> String
@@ -15,7 +15,9 @@ instance Show LoxClass where
 
 instance LoxCallable LoxClass where
   call :: LoxClass -> [Value] -> LoxAction Value
-  call = undefined -- TODO: object initialization
+  call c _ = do
+    props <- liftIO $ newIORef Map.empty
+    return $ Object LoxInstance {klass = c, properties = props}
   arity :: LoxClass -> Int
   arity _ = 0
 

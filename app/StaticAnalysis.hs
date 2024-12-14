@@ -1,4 +1,4 @@
-module StaticAnalysis where
+module StaticAnalysis (errorsIn) where
 
 import Control.Monad.State (State, evalState, get, modify, put)
 import Data.List (sortOn)

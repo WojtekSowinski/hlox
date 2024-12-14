@@ -62,12 +62,13 @@ executable hlox
     main-is:          Main.hs
 
     -- Modules included in this executable, other than Main.
-    other-modules:    ParserCombinators
-                      LoxParser
+    other-modules:    Functions
                       LoxAST
-                      LoxInterpreter
                       LoxInternals
-                      Functions
+                      LoxInterpreter
+                      LoxParser
+                      OOP
+                      ParserCombinators
                       Scope
                       StaticAnalysis
 

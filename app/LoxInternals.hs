@@ -20,11 +20,16 @@ class (Show f) => LoxCallable f where
   call :: f -> [Value] -> LoxAction Value
   arity :: f -> Int
 
+class (Show t) => LoxObject t where
+  getProperty :: t -> Identifier -> LoxAction (Maybe Value)
+  setProperty :: t -> Identifier -> Value -> LoxAction ()
+
 data Value
   = LitString String
   | LitNumber Double
   | LitBoolean Bool
   | Nil
+  | forall t. (LoxObject t) => Object t
   | forall f. (LoxCallable f) => Function f
 
 instance Show Value where
@@ -36,6 +41,7 @@ instance Show Value where
   show (LitBoolean b) = map toLower $ show b
   show Nil = "nil"
   show (Function f) = show f
+  show (Object obj) = show obj
 
 instance Eq Value where
   (==) :: Value -> Value -> Bool

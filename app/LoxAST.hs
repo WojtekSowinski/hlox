@@ -32,7 +32,9 @@ data Expression
   | Or {left :: Expression, right :: Expression}
   | Assign {line :: Int, left :: Expression, right :: Expression}
   | FunctionCall {line :: Int, function :: Expression, args :: [Expression]}
+  | AccessProperty {line :: Int, object :: Expression, property :: Identifier}
   | TooManyArgs {line :: Int}
+  | InvalidAssignmentTarget {line :: Int}
   deriving (Show)
 
 data Statement
@@ -56,5 +58,6 @@ data FunctionDef
   deriving (Show)
 
 isValidLValue :: Expression -> Bool
-isValidLValue (Variable _ _) = True
+isValidLValue (Variable {}) = True
+isValidLValue (AccessProperty {}) = True
 isValidLValue _ = False

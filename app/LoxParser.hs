@@ -5,7 +5,7 @@
 module LoxParser where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
-import Control.Monad (guard, mfilter, void)
+import Control.Monad (foldM, guard, mfilter, void)
 import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
@@ -112,7 +112,7 @@ expression = whitespace *> assignment <* whitespace
         Just ex ->
           if isValidLValue target
             then return $ Assign line target ex
-            else panic "Invalid assignment target."
+            else return $ InvalidAssignmentTarget line
 
     disjunction :: Parser Expression = do
       firstDisjunct <- conjunction
@@ -154,15 +154,21 @@ expression = whitespace *> assignment <* whitespace
         <|> functionCall
 
     functionCall :: Parser Expression = do
-      line <- getLineNr
       func <- primaryExp
-      args <- optional arguments <* whitespace
-      case args of
-        Nothing -> return func
-        Just argList ->
-          if length argList > 255
-            then return $ TooManyArgs line
-            else return $ FunctionCall line func argList
+      calls <- many ((,) <$> getLineNr <*> ((Left <$> propertyAccess) <|> (Right <$> arguments)) <* whitespace)
+      foldM
+        ( \f (line, call) ->
+            case call of
+              (Left prop) -> return $ AccessProperty line func prop
+              (Right args) ->
+                if length args > 255
+                  then
+                    return $ TooManyArgs line
+                  else
+                    return $ FunctionCall line f args
+        )
+        func
+        calls
 
     primaryExp :: Parser Expression =
       whitespace
@@ -229,6 +235,10 @@ funcDef = do
     | hasDuplicates params -> return $ DuplicateParams line
     | otherwise -> return $ FunctionDef funcName params body
 
+hasDuplicates :: (Eq a) => [a] -> Bool
+hasDuplicates [] = False
+hasDuplicates (x : xs) = x `elem` xs || hasDuplicates xs
+
 funcDecl :: Parser Statement
 funcDecl = keyword "fun" *> whitespace *> (FunctionDecl <$> funcDef)
 
@@ -245,9 +255,8 @@ classDecl = do
   mchar '}' <|> panic "Expected '}' after class body."
   return $ ClassDecl name methods
 
-hasDuplicates :: (Eq a) => [a] -> Bool
-hasDuplicates [] = False
-hasDuplicates (x : xs) = x `elem` xs || hasDuplicates xs
+propertyAccess :: Parser Identifier
+propertyAccess = mchar '.' *> identifier <|> panic "Expected a property name after '.'."
 
 arguments :: Parser [Expression]
 arguments = do

@@ -91,7 +91,17 @@ eval (FunctionCall line funcEx argExs) = do
   case func of
     Function f -> checkArity line f args >> call f args
     _ -> loxThrow (line, "Can't call " ++ show func ++ " as it is not a function.")
+eval (AccessProperty line ex prop) = do
+  operand <- eval ex
+  case operand of
+    Object obj -> do
+      val <- getProperty obj prop
+      case val of
+        Just value -> return value
+        Nothing -> loxThrow (line, "Undefined property '" ++ prop ++ "'.")
+    _ -> loxThrow (line, "Can't access properties on " ++ show operand ++ " as it is not an object.")
 eval (TooManyArgs _) = undefined
+eval (InvalidAssignmentTarget _) = undefined
 
 applyBinOp :: Int -> Value -> BinOp -> Value -> LoxAction Value
 applyBinOp _ left EQ right = return $ LitBoolean $ left == right
@@ -128,6 +138,11 @@ assign (Variable line varName) ex = do
       newVal <- eval ex
       liftIO $ writeIORef ref newVal
       return newVal
+assign (AccessProperty line objExpr prop) ex = do
+  object <- eval objExpr
+  case object of
+    Object obj -> (setProperty obj prop <$> eval ex) >> return object
+    _ -> loxThrow (line, "Can't set properties on " ++ show object ++ " as it is not an object.")
 assign _ _ = undefined
 
 data LoxFunction = LoxFunction

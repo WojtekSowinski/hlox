@@ -25,12 +25,13 @@ type Program = [Statement]
 data Expression
   = Literal {value :: Value}
   | Variable {line :: Int, name :: Identifier}
+  | This {line :: Int}
   | BinOperation {line :: Int, left :: Expression, operator :: BinOp, right :: Expression}
   | Negative {line :: Int, operand :: Expression}
   | Not {operand :: Expression}
   | And {left :: Expression, right :: Expression}
   | Or {left :: Expression, right :: Expression}
-  | Assign {line :: Int, left :: Expression, right :: Expression}
+  | Assign {left :: Expression, right :: Expression}
   | FunctionCall {line :: Int, function :: Expression, args :: [Expression]}
   | AccessProperty {line :: Int, object :: Expression, property :: Identifier}
   | TooManyArgs {line :: Int}

@@ -4,7 +4,6 @@ import Control.Monad.Trans (liftIO)
 import Data.IORef (IORef, modifyIORef, newIORef, readIORef)
 import Data.Map qualified as Map
 import Environment (Identifier)
-import Functions (LoxCallable)
 import LoxInternals (LoxAction, LoxCallable (..), LoxObject (..), Value (Object), loxThrow)
 
 data LoxClass = LoxClass {name :: Identifier, superclass :: Maybe LoxClass}

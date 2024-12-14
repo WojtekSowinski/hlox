@@ -1,8 +1,8 @@
-{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 {-# LANGUAGE MultiWayIf #-}
+{-# OPTIONS_GHC -Wno-unused-do-bind #-}
 
 -- module LoxParser (program, repl) where
-module LoxParser  where
+module LoxParser where
 
 import Control.Applicative (Alternative (many, some), optional, (<|>))
 import Control.Monad (guard, mfilter, void)
@@ -10,10 +10,10 @@ import Data.Char (isAlpha, isDigit)
 import Data.List (foldl')
 import Data.Maybe (fromJust, fromMaybe)
 import LoxAST
-import ParserCombinators
-import Prelude hiding (EQ, GT, LT)
 import LoxInternals
+import ParserCombinators
 import Scope (Identifier)
+import Prelude hiding (EQ, GT, LT)
 
 whitespace :: Parser String
 whitespace = consumeWhile (`elem` " \r\t\n")
@@ -159,7 +159,8 @@ expression = whitespace *> assignment <* whitespace
       args <- optional arguments <* whitespace
       case args of
         Nothing -> return func
-        Just argList -> if length argList > 255
+        Just argList ->
+          if length argList > 255
             then return $ TooManyArgs line
             else return $ FunctionCall line func argList
 
@@ -203,7 +204,7 @@ command =
     <|> block
 
 declaration :: Parser Statement
-declaration = varDecl <|> funcDef
+declaration = varDecl <|> funcDecl
 
 varDecl :: Parser Statement
 varDecl = do
@@ -216,47 +217,63 @@ varDecl = do
   mchar ';' <|> panic "Expected ';' after a variable declaration."
   return $ VarInitialize line varName $ fromMaybe (Literal Nil) initValue
 
-funcDef :: Parser Statement
+funcDef :: Parser FunctionDef
 funcDef = do
-  keyword "fun"
-  whitespace
   funcName <- identifier
   whitespace
   line <- getLineNr
   params <- parameters
-  if | length params > 255 -> return $ TooManyParams line
-     | hasDuplicates params -> return $ DuplicateParams line
-     | otherwise -> FunctionDef funcName params <$> (whitespace *> command)
+  body <- whitespace *> block
+  if
+    | length params > 255 -> return $ TooManyParams line
+    | hasDuplicates params -> return $ DuplicateParams line
+    | otherwise -> return $ FunctionDef funcName params body
 
-hasDuplicates :: Eq a => [a] -> Bool
+funcDecl :: Parser Statement
+funcDecl = keyword "fun" *> whitespace *> (FunctionDecl <$> funcDef)
+
+classDecl :: Parser Statement
+classDecl = do
+  keyword "class"
+  whitespace
+  name <- identifier
+  whitespace
+  mchar '{' <|> panic "Expected '{' before class body."
+  whitespace
+  methods <- funcDef `sepBy` whitespace
+  whitespace
+  mchar '}' <|> panic "Expected '}' after class body."
+  return $ ClassDecl name methods
+
+hasDuplicates :: (Eq a) => [a] -> Bool
 hasDuplicates [] = False
-hasDuplicates (x:xs) = x `elem` xs || hasDuplicates xs
+hasDuplicates (x : xs) = x `elem` xs || hasDuplicates xs
 
 arguments :: Parser [Expression]
 arguments = do
-    mchar '('
-    whitespace
-    args <- expression `sepBy` (whitespace *> mchar ',' <* whitespace)
-    whitespace
-    mchar ')' <|> panic "Missing ')' after argument list."
-    return args
+  mchar '('
+  whitespace
+  args <- expression `sepBy` (whitespace *> mchar ',' <* whitespace)
+  whitespace
+  mchar ')' <|> panic "Missing ')' after argument list."
+  return args
 
 parameters :: Parser [Identifier]
 parameters = do
-    mchar '('
-    whitespace
-    params <- identifier `sepBy` (whitespace *> mchar ',' <* whitespace)
-    whitespace
-    mchar ')' <|> panic "Missing ')' after parameters list."
-    return params
+  mchar '('
+  whitespace
+  params <- identifier `sepBy` (whitespace *> mchar ',' <* whitespace)
+  whitespace
+  mchar ')' <|> panic "Missing ')' after parameters list."
+  return params
 
 returnStatement :: Parser Statement
 returnStatement = do
-    keyword "return"
-    line <- getLineNr
-    value <- optional expression
-    mchar ';' <|> panic "Expected ';' after a return statement."
-    return $ Return line value
+  keyword "return"
+  line <- getLineNr
+  value <- optional expression
+  mchar ';' <|> panic "Expected ';' after a return statement."
+  return $ Return line value
 
 printStatement :: Parser Statement
 printStatement = do

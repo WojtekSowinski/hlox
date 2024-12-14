@@ -41,11 +41,16 @@ data Statement
   | VarInitialize {line :: Int, name :: Identifier, value :: Expression}
   | If {cond :: Expression, trueBranch :: Statement, falseBranch :: Statement}
   | While {cond :: Expression, body :: Statement}
-  | FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
   | Return {line :: Int, returnValue :: Maybe Expression}
   | Block {statements :: [Statement]}
+  | FunctionDecl FunctionDef
+  | ClassDecl {name :: Identifier, methods :: [FunctionDef]}
   | NOP
   | CouldNotParse {line :: Int, errMsg :: String}
+  deriving (Show)
+
+data FunctionDef
+  = FunctionDef {name :: Identifier, params :: [Identifier], body :: Statement}
   | TooManyParams {line :: Int}
   | DuplicateParams {line :: Int}
   deriving (Show)

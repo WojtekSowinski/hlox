@@ -57,6 +57,7 @@ data Statement
   | Return Expression
   | CouldNotParse {lineNr :: Int, errMsg :: String}
   | Block [Statement]
+  | NOP
   deriving (Show)
 
 isValidLValue :: Expression -> Bool

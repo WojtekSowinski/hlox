@@ -20,10 +20,19 @@ digit = mfilter isDigit consumeChar
 letter :: Parser Char
 letter = mfilter (\c -> isAlpha c || c == '_') consumeChar
 
+alphaNumeric :: Parser Char
+alphaNumeric = letter <|> digit
+
+keyword :: String -> Parser String
+keyword expected = do
+    word <- many alphaNumeric
+    guard (word == expected)
+    return expected
+
 pIdentifier :: Parser Identifier
 pIdentifier = do
   testFor letter
-  name <- some $ letter <|> digit
+  name <- many alphaNumeric
   guard (name `notElem` reservedKeywords)
   return name
 
@@ -48,7 +57,7 @@ reservedKeywords =
   ]
 
 pBool :: Parser Bool
-pBool = (match "true" >> return True) <|> (match "false" >> return False)
+pBool = (keyword "true" >> return True) <|> (keyword "false" >> return False)
 
 pNumber :: Parser Double
 pNumber = do
@@ -68,7 +77,7 @@ pValue =
   LitBoolean <$> pBool
     <|> LitNumber <$> pNumber
     <|> LitString <$> pString
-    <|> (match "nil" >> return Nil)
+    <|> (keyword "nil" >> return Nil)
 
 operatorDict :: [(String, BinOp)]
 operatorDict =
@@ -145,7 +154,7 @@ synchronize err = do
 
 startOfStatement :: Parser ()
 startOfStatement = do
-  word <- consumeWhile isAlpha
+  word <- many alphaNumeric
   guard (word `elem` ["class", "for", "fun", "if", "print", "return", "var", "while"])
 
 pStatement :: Parser Statement
@@ -160,14 +169,14 @@ pStatement =
 
 pCommand :: Parser Statement
 pCommand =
-  expressionStatement <|> printStatement <|> block
+  expressionStatement <|> ifStatement <|> printStatement <|> block
 
 pDeclaration :: Parser Statement
 pDeclaration = varDecl -- <|> funcDef
 
 varDecl :: Parser Statement
 varDecl = do
-  match "var"
+  keyword "var"
   whitespace
   varName <- pIdentifier
   whitespace
@@ -180,7 +189,7 @@ funcDef = undefined
 
 printStatement :: Parser Statement
 printStatement = do
-  match "print"
+  keyword "print"
   expr <- pExpression
   mchar ';' <|> panic "Expected ';' after a print statement."
   return $ Print expr
@@ -196,6 +205,17 @@ block = do
   mchar '{'
   statements <- untilP (mchar '}') pStatement <|> panic "Missing '}'."
   return $ Block statements
+
+ifStatement :: Parser Statement
+ifStatement = do
+    keyword "if"
+    whitespace
+    mchar '(' <|> panic "Expected '(' after 'if'."
+    cond <- pExpression
+    mchar ')' <|> panic "Missing ')' after if condition."
+    trueBranch <- whitespace *> pCommand <* whitespace
+    falseBranch <- optional (keyword "else" *> whitespace *> pCommand)
+    return $ If cond trueBranch (fromMaybe NOP falseBranch)
 
 pProgram :: Parser Program
 pProgram = untilP eof pStatement

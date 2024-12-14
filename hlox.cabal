@@ -66,6 +66,7 @@ executable hlox
                       LoxParser
                       LoxAST
                       LoxInterpreter
+                      Scope
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

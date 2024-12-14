@@ -1,6 +1,6 @@
 {-# OPTIONS_GHC -Wno-incomplete-uni-patterns #-}
 
-module Main where
+module Main (main) where
 
 import Control.Monad (when)
 import Control.Monad.State (MonadIO (liftIO))
@@ -8,7 +8,7 @@ import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
 import LoxAST (Program)
 import LoxInterpreter (LoxAction, ProgramState, exec, initState, runLoxAction)
-import LoxParser (pProgram, pRepl)
+import LoxParser (program, repl)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
 import System.Exit (ExitCode (ExitFailure), exitSuccess, exitWith)
@@ -30,7 +30,7 @@ readPromptLine = do
 runRepl :: ProgramState -> IO ()
 runRepl st = do
   code <- liftIO readPromptLine
-  (_, newState) <- runLoxAction (run code pRepl) st
+  (_, newState) <- runLoxAction (run code repl) st
   runRepl newState
 
 main :: IO ()
@@ -40,6 +40,6 @@ main = do
     [] -> runRepl initState
     [filename] -> do
       code <- readFile filename
-      (exitCode, _) <- runLoxAction (run code pProgram) initState
+      (exitCode, _) <- runLoxAction (run code program) initState
       exitWith exitCode
     _ -> fail "Usage: hlox [script]"

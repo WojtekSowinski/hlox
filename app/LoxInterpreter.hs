@@ -19,7 +19,8 @@ initialize = do
     ProgramState
       { lineNumber = 1,
         env = fromList [("clock", clockRef)],
-        this = undefined
+        this = Nil,
+        super = undefined
       }
 
 exec :: Program -> LoxAction ExitCode
@@ -94,7 +95,13 @@ eval (Variable line varName) = do
     Nothing -> loxThrow ("Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
 eval (This _) = gets this
-eval (Super _ _) = undefined -- TODO: Interpret the super keyword
+eval (Super line method) = do
+  Object obj <- gets this
+  setLine line
+  klass <- gets super
+  case findMethod method klass of
+    Nothing -> loxThrow ("Undefined method '" ++ method ++ "'.")
+    Just f -> return $ Function $ bind obj f
 eval (Assign target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
@@ -179,19 +186,25 @@ makeTopLevelFunction (FunctionDef _ name params body) = do
 makeTopLevelFunction _ = undefined
 
 makeMethod :: ProgramState -> FunctionDef -> (Identifier, LoxFunction)
-makeMethod closure (FunctionDef _ name params body) = (name, fn) where
-    fnBody = if name == "init"
-        then acceptReturn (interpret body) >> (gets this >>= loxReturn) 
+makeMethod closure (FunctionDef _ name params body) = (name, fn)
+  where
+    fnBody =
+      if name == "init"
+        then acceptReturn (interpret body) >> (gets this >>= loxReturn)
         else interpret body
-    fn = LoxFunction {fnParams=params, fnName=name, fnBody=fnBody, closure=closure}
+    fn = LoxFunction {fnParams = params, fnName = name, fnBody = fnBody, closure = closure}
 makeMethod _ _ = undefined
 
-
 createClass :: Identifier -> Maybe Expression -> [FunctionDef] -> LoxAction ()
-createClass className super methodDefs = do
-  superclass <- evalSuperclass super
+createClass className superExpr methodDefs = do
+  superclass <- evalSuperclass superExpr
   currentState <- get
-  let methods = map (makeMethod currentState) methodDefs
+  let methodClosure =
+        ( case superclass of
+            Nothing -> currentState
+            Just klass -> currentState {super = klass}
+        )
+  let methods = map (makeMethod methodClosure) methodDefs
   ref <- getLocalRef className
   liftIO $ writeIORef ref $ Class $ LoxClass className superclass methods
 

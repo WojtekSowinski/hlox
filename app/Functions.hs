@@ -1,8 +1,8 @@
 module Functions (clock) where
 
-import LoxInternals (LoxAction, LoxCallable (..), Value (LitNumber))
 import Control.Monad.Trans (liftIO)
 import Data.Time.Clock.POSIX (getPOSIXTime)
+import LoxInternals (LoxAction, LoxCallable (..), Value (LitNumber))
 
 data ForeignFunction = ForeignFunction
   { name :: String,
@@ -20,7 +20,9 @@ instance LoxCallable ForeignFunction where
   arity = numParams
 
 clock :: ForeignFunction
-clock = ForeignFunction {
-    name = "clock",
-    apply = \_ -> liftIO $ LitNumber . fromInteger . round <$> getPOSIXTime,
-    numParams = 0}
+clock =
+  ForeignFunction
+    { name = "clock",
+      apply = \_ -> liftIO $ LitNumber . fromInteger . round <$> getPOSIXTime,
+      numParams = 0
+    }

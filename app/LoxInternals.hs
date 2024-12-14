@@ -13,13 +13,15 @@ module LoxInternals
     setLine,
     getProperty,
     setProperty,
+    findMethod,
+    bind,
     isTruthy,
     runLoxAction,
     loxThrow,
     loxCatch,
     loxReturn,
     acceptReturn,
-    reportError
+    reportError,
   )
 where
 
@@ -36,7 +38,8 @@ import Environment
 data ProgramState = ProgramState
   { env :: Environment (IORef Value),
     lineNumber :: Int,
-    this :: Value
+    this :: Value,
+    super :: LoxClass
   }
 
 type LoxAction = ExceptT ShortCircuit (StateT ProgramState IO)
@@ -74,8 +77,8 @@ data LoxClass = LoxClass
   }
 
 findMethod :: Identifier -> LoxClass -> Maybe LoxFunction
-findMethod name LoxClass {methods = methods, superclass=super} =
-    lookup name methods <|> (findMethod name =<< super)
+findMethod name LoxClass {methods = methods, superclass = super} =
+  lookup name methods <|> (findMethod name =<< super)
 
 instance Show LoxClass where
   show :: LoxClass -> String
@@ -87,8 +90,8 @@ instance LoxCallable LoxClass where
     props <- liftIO $ newIORef Map.empty
     let inst = LoxInstance {klass = c, properties = props}
     case findMethod "init" c of
-        Nothing -> return $ Object inst
-        Just initMethod -> call (bind inst initMethod) args
+      Nothing -> return $ Object inst
+      Just initMethod -> call (bind inst initMethod) args
   arity :: LoxClass -> Int
   arity c = maybe 0 arity (findMethod "init" c)
 

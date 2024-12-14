@@ -11,7 +11,7 @@ module LoxAST
 where
 
 import Environment (Identifier)
-import LoxInternals (Value, LoxFunction (fnBody))
+import LoxInternals (Value)
 import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ
@@ -56,7 +56,7 @@ data Statement
   | Return {line :: Int, returnValue :: Maybe Expression}
   | Block {statements :: [Statement]}
   | FunctionDecl FunctionDef
-  | ClassDecl {line :: Int, name :: Identifier, super :: Maybe Expression, methods :: [FunctionDef]}
+  | ClassDecl {line :: Int, name :: Identifier, superclass :: Maybe Expression, methods :: [FunctionDef]}
   | NOP
   | CouldNotParse {line :: Int, errMsg :: String}
   deriving (Show)

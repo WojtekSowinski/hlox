@@ -7,12 +7,12 @@ import Control.Monad.State (MonadIO (liftIO))
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
 import LoxAST (Program)
+import LoxInternals (LoxAction, ProgramState, runLoxAction)
 import LoxInterpreter (exec, initialize)
 import LoxParser (program, repl)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess), exitSuccess, exitWith)
-import LoxInternals (LoxAction, runLoxAction, ProgramState)
 
 run :: String -> Parser Program -> LoxAction ExitCode
 run code parser = do
@@ -32,7 +32,7 @@ runRepl :: ProgramState -> IO ()
 runRepl state = do
   code <- liftIO readPromptLine
   (Right exitCode, newState) <- runLoxAction (run code repl) state
-  case exitCode of 
+  case exitCode of
     ExitSuccess -> runRepl newState
     ExitFailure _ -> runRepl state
 

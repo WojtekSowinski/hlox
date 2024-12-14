@@ -3,7 +3,7 @@
 module LoxAST where
 
 import LoxInternals (Value)
-import Scope (Identifier)
+import Environment (Identifier)
 import Prelude hiding (EQ, GT, LT)
 
 data BinOp = ADD | SUB | MULT | DIV | LT | GT | LEQ | GEQ | EQ | NEQ

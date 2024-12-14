@@ -12,7 +12,7 @@ import Data.Maybe (fromJust, fromMaybe)
 import LoxAST
 import LoxInternals
 import ParserCombinators
-import Scope (Identifier)
+import Environment (Identifier)
 import Prelude hiding (EQ, GT, LT)
 
 whitespace :: Parser String
@@ -210,7 +210,7 @@ command =
     <|> block
 
 declaration :: Parser Statement
-declaration = varDecl <|> funcDecl
+declaration = varDecl <|> funcDecl <|> classDecl
 
 varDecl :: Parser Statement
 varDecl = do
@@ -256,7 +256,7 @@ classDecl = do
   return $ ClassDecl name methods
 
 propertyAccess :: Parser Identifier
-propertyAccess = mchar '.' *> identifier <|> panic "Expected a property name after '.'."
+propertyAccess = mchar '.' *> (identifier <|> panic "Expected a property name after '.'.")
 
 arguments :: Parser [Expression]
 arguments = do

@@ -4,7 +4,7 @@ import Control.Monad.State (State, evalState, get, modify, put)
 import Data.List (sortOn)
 import LoxAST (Expression (..), FunctionDef (..), Program, Statement (..))
 import LoxInternals (LoxError)
-import Scope (Identifier)
+import Environment (Identifier)
 
 errorsIn :: Program -> [LoxError]
 errorsIn program = sortOn fst $ concat [f stmt | f <- passes, stmt <- program]

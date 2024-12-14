@@ -12,7 +12,7 @@ import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Functions (clock)
 import LoxAST
 import LoxInternals
-import Scope
+import Environment
 import StaticAnalysis (errorsIn)
 import System.Exit (ExitCode (ExitFailure, ExitSuccess))
 import Prelude hiding (EQ, GT, LT)
@@ -20,7 +20,25 @@ import Prelude hiding (EQ, GT, LT)
 initialize :: IO ProgramState
 initialize = do
   clockRef <- newIORef $ Function clock
-  return $ fromList [("clock", clockRef)]
+  return $ ProgramState {lineNumber = 1, env = fromList [("clock", clockRef)]}
+
+define :: Identifier -> Value -> LoxAction (IORef Value)
+define name value = do
+    ref <- liftIO $ newIORef value
+    modify (\s -> s {env = insert name ref (env s)})
+    return ref
+
+enterNewScope :: [(Identifier, Value)] -> LoxAction ()
+enterNewScope dict = do
+    let (names, vals) = unzip dict
+    refs <- mapM (liftIO . newIORef) vals
+    modify (\s -> s {env = initNewScope (zip names refs) (env s)})
+
+exitScope :: LoxAction ()
+exitScope = modify (\s -> s {env = discardLocal (env s)})
+
+setLine :: Int -> LoxAction ()
+setLine n = modify (\s -> s {lineNumber = n})
 
 exec :: Program -> LoxAction ExitCode
 exec program = do
@@ -37,18 +55,18 @@ interpret NOP = return ()
 interpret (Eval ex) =
   loxCatch
     (void $ eval ex)
-    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
+    (\(_, err) -> loxThrow $ "Couldn't evaluate expression - " ++ err)
 interpret (Print ex) =
   loxCatch
     (eval ex >>= (liftIO . print))
-    (\(ln, err) -> loxThrow (ln, "Couldn't evaluate expression - " ++ err))
+    (\(_, err) -> loxThrow $ "Couldn't evaluate expression - " ++ err)
 interpret (VarInitialize _ varName ex) = do
-  initVal <- eval ex >>= (liftIO . newIORef)
-  modify $ insertVar varName initVal
+  initVal <- eval ex
+  void $ define varName initVal
 interpret (Block statements) = do
-  modify $ enterNewScope []
+  enterNewScope []
   mapM_ interpret statements
-  modify discardLocal
+  exitScope
 interpret (If cond trueBranch falseBranch) = do
   condVal <- eval cond
   interpret $ if isTruthy condVal then trueBranch else falseBranch
@@ -66,9 +84,10 @@ eval (Literal val) = return val
 eval (Not ex) = LitBoolean . not . isTruthy <$> eval ex
 eval (Negative line ex) = do
   operand <- eval ex
+  setLine line
   case operand of
     LitNumber val -> return $ LitNumber (-val)
-    _ -> loxThrow (line, "Operand of a negation must be a number.")
+    _ -> loxThrow "Operand of a negation must be a number."
 eval (And leftEx rightEx) = do
   leftOp <- eval leftEx
   if isTruthy leftOp then eval rightEx else return leftOp
@@ -78,38 +97,37 @@ eval (Or leftEx rightEx) = do
 eval (BinOperation line leftEx op rightEx) = do
   leftOp <- eval leftEx
   rightOp <- eval rightEx
-  applyBinOp line leftOp op rightOp
+  setLine line
+  applyBinOp leftOp op rightOp
 eval (Variable line varName) = do
-  scope <- get
+  scope <- gets env
+  setLine line
   case lookUp varName scope of
-    Nothing -> loxThrow (line, "Undefined Variable " ++ show varName ++ ".")
+    Nothing -> loxThrow ("Undefined Variable " ++ show varName ++ ".")
     Just ref -> liftIO $ readIORef ref
 eval (Assign _ target ex) = assign target ex
 eval (FunctionCall line funcEx argExs) = do
   func <- eval funcEx
   args <- mapM eval argExs
+  setLine line
   case func of
-    Function f -> checkArity line f args >> call f args
-    _ -> loxThrow (line, "Can't call " ++ show func ++ " as it is not a function.")
+    Function f -> checkArity f args >> call f args
+    _ -> loxThrow ("Can't call " ++ show func ++ " as it is not a function.")
 eval (AccessProperty line ex prop) = do
   operand <- eval ex
   case operand of
-    Object obj -> do
-      val <- getProperty obj prop
-      case val of
-        Just value -> return value
-        Nothing -> loxThrow (line, "Undefined property '" ++ prop ++ "'.")
-    _ -> loxThrow (line, "Can't access properties on " ++ show operand ++ " as it is not an object.")
+    Object obj -> setLine line >> getProperty obj prop
+    _ -> loxThrow ("Can't access properties on " ++ show operand ++ " as it is not an object.")
 eval (TooManyArgs _) = undefined
 eval (InvalidAssignmentTarget _) = undefined
 
-applyBinOp :: Int -> Value -> BinOp -> Value -> LoxAction Value
-applyBinOp _ left EQ right = return $ LitBoolean $ left == right
-applyBinOp _ left NEQ right = return $ LitBoolean $ left /= right
-applyBinOp _ (LitString s1) ADD (LitString s2) = return $ LitString $ s1 ++ s2
-applyBinOp _ (LitNumber n1) op (LitNumber n2) = return $ calc n1 op n2
-applyBinOp line _ ADD _ = loxThrow (line, "Operands of '+' must be numbers or strings.")
-applyBinOp line _ op _ = loxThrow (line, "Operands of '" ++ show op ++ "' must be numbers.")
+applyBinOp :: Value -> BinOp -> Value -> LoxAction Value
+applyBinOp left EQ right = return $ LitBoolean $ left == right
+applyBinOp left NEQ right = return $ LitBoolean $ left /= right
+applyBinOp (LitString s1) ADD (LitString s2) = return $ LitString $ s1 ++ s2
+applyBinOp (LitNumber n1) op (LitNumber n2) = return $ calc n1 op n2
+applyBinOp _ ADD _ = loxThrow "Operands of '+' must be numbers or strings."
+applyBinOp _ op _ = loxThrow ("Operands of '" ++ show op ++ "' must be numbers.")
 
 calc :: Double -> BinOp -> Double -> Value
 calc n1 ADD n2 = LitNumber $ n1 + n2
@@ -122,27 +140,29 @@ calc n1 LEQ n2 = LitBoolean $ n1 <= n2
 calc n1 GEQ n2 = LitBoolean $ n1 >= n2
 calc _ _ _ = undefined
 
-checkArity :: (LoxCallable f) => Int -> f -> [Value] -> LoxAction ()
-checkArity line f args = do
+checkArity :: (LoxCallable f) => f -> [Value] -> LoxAction ()
+checkArity f args = do
   let argNum = length args
   let expected = arity f
   when (argNum /= expected) $
-    loxThrow (line, "Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
+    loxThrow ("Expected " ++ show expected ++ " arguments, got " ++ show argNum ++ ".")
 
 assign :: Expression -> Expression -> LoxAction Value
 assign (Variable line varName) ex = do
-  scope <- get
+  scope <- gets env
+  setLine line
   case lookUp varName scope of
-    Nothing -> loxThrow (line, "Undefined variable " ++ show varName ++ ".")
+    Nothing -> loxThrow ("Undefined variable " ++ show varName ++ ".")
     Just ref -> do
       newVal <- eval ex
       liftIO $ writeIORef ref newVal
       return newVal
 assign (AccessProperty line objExpr prop) ex = do
   object <- eval objExpr
+  setLine line
   case object of
     Object obj -> (setProperty obj prop <$> eval ex) >> return object
-    _ -> loxThrow (line, "Can't set properties on " ++ show object ++ " as it is not an object.")
+    _ -> loxThrow ("Can't set properties on " ++ show object ++ " as it is not an object.")
 assign _ _ = undefined
 
 data LoxFunction = LoxFunction
@@ -160,8 +180,7 @@ instance LoxCallable LoxFunction where
   call f args = do
     oldState <- get
     put $ closure f
-    argRefs <- mapM (liftIO . newIORef) args
-    modify $ enterNewScope $ zip (fnParams f) argRefs
+    enterNewScope $ zip (fnParams f) args
     returnVal <- acceptReturn $ interpret $ fnBody f
     put oldState
     return returnVal
@@ -170,13 +189,10 @@ instance LoxCallable LoxFunction where
 
 getLocalRef :: Identifier -> Value -> LoxAction (IORef Value)
 getLocalRef name value = do
-  oldState <- get
+  oldState <- gets env
   case lookUpLocal name oldState of
     Just ref -> return ref
-    Nothing -> do
-      ref <- liftIO $ newIORef value
-      modify $ insertVar name ref
-      return ref
+    Nothing -> define name value
 
 createFunction :: FunctionDef -> LoxAction ()
 createFunction (FunctionDef name params body) = do

@@ -62,6 +62,13 @@ instance MonadFail Parser where
 panic :: ParseError -> Parser a
 panic err = Parser (,Panicked err)
 
+-- | Create a version of the supplied parser which fails instead of panicking
+calm :: Parser a -> Parser a
+calm (Parser pa) = Parser p where
+    p st = case pa st of
+        (st', Panicked err) -> (st', Failed err)
+        result -> result
+
 -- | Recover from a panic or unhandled failure
 (<!>) :: Parser a -> (ParseError -> Parser a) -> Parser a
 Parser pa <!> sync = Parser p
@@ -121,10 +128,10 @@ getLineNr :: Parser Int
 getLineNr = Parser (\st@(_, ln) -> (st, Matched ln))
 
 findNext :: Parser a -> Parser a
-findNext (Parser pa) = Parser p
+findNext pa = Parser p
   where
     p s = recurse s s
-    recurse st@(inp, _) initSt = case pa st of
+    recurse st@(inp, _) initSt = case runParser (calm pa) st of
       out@(_, Matched _) -> out
       (_, err) ->
         if null inp
@@ -132,11 +139,11 @@ findNext (Parser pa) = Parser p
           else recurse (fst $ runParser consumeChar st) initSt
 
 testFor :: Parser a -> Parser a
-testFor (Parser p) = Parser t
+testFor pa = Parser p
   where
-    t st = case p st of
+    p st = case runParser (calm pa) st of
       (_, Matched a) -> (st, Matched a)
       (_, err) -> (st, err)
 
-untilA :: (Alternative f) => f a -> f b -> f [b]
-untilA cond loop =  (cond $> []) <|> ( (:) <$> loop <*> untilA cond loop )
+untilP :: Parser a -> Parser b -> Parser [b]
+untilP cond loop = (calm cond $> []) <|> ( (:) <$> loop <*> untilP cond loop )

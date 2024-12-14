@@ -194,8 +194,11 @@ expressionStatement = do
 block :: Parser Statement
 block = do
   mchar '{'
-  statements <- untilA (mchar '}') pStatement <|> panic "Missing '}'."
+  statements <- untilP (mchar '}') pStatement <|> panic "Missing '}'."
   return $ Block statements
 
 pProgram :: Parser Program
-pProgram = untilA eof pStatement
+pProgram = untilP eof pStatement
+
+pRepl :: Parser Program
+pRepl = ((:[]) . Print <$> pExpression <* eof) <|> pProgram

@@ -256,7 +256,7 @@ propertyAccess = do
 arguments :: Parser [Expression]
 arguments = do
   mchar '('
-  args <- expression `sepBy` (emptySpace *> mchar ',' <* emptySpace)
+  args <- expression `sepBy` mchar ','
   mchar ')' <|> panic "Missing ')' after argument list."
   return args
 

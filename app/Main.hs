@@ -7,7 +7,7 @@ import Control.Monad.State (MonadIO (liftIO))
 import GHC.IO.Handle (hFlush, isEOF)
 import GHC.IO.Handle.FD (stdout)
 import LoxAST (Program)
-import LoxInterpreter (LoxAction, ProgramState, exec, initState, runLoxAction)
+import LoxInterpreter (LoxAction, ProgramState, exec, initialize, runLoxAction)
 import LoxParser (program, repl)
 import ParserCombinators (ParseOutput (Matched), Parser (runParser))
 import System.Environment (getArgs)
@@ -36,6 +36,7 @@ runRepl st = do
 main :: IO ()
 main = do
   args <- getArgs
+  initState <- initialize
   case args of
     [] -> runRepl initState
     [filename] -> do

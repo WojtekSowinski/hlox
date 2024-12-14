@@ -1,8 +1,8 @@
 module ParserCombinators where
 
 import Control.Applicative (Alternative (empty), (<|>))
-import Data.Char (isDigit, isAlpha)
-import Control.Monad (unless)
+import Control.Monad (unless, MonadPlus)
+import Data.Foldable (foldl')
 
 type ParseError = String
 
@@ -46,6 +46,11 @@ instance MonadFail Parser where
   fail :: String -> Parser a
   fail err = Parser (\(_, ln) -> Left $ errOnLine ln err)
 
+instance MonadPlus Parser
+
+choice :: Alternative f => [f a] -> f a
+choice = foldl' (<|>) empty
+
 errOnLine :: Int -> ParseError -> ParseError
 errOnLine ln err = "Error on line " ++ show ln ++ ['\n'] ++ err
 
@@ -73,18 +78,6 @@ mchar expected = Parser p
 
 match :: String -> Parser String
 match s = mapM mchar s <|> fail ("Expected " ++ show s)
-
-digit :: Parser Char
-digit = do
-    c <- consumeChar
-    unless (isDigit c) $ fail $ "Expected a digit, found " ++ show c
-    return c
-
-letter :: Parser Char
-letter = do 
-    c <- consumeChar
-    unless (isAlpha c) $ fail $ "Expected a letter, found " ++ show c
-    return c
 
 consumeWhile :: (Char -> Bool) -> Parser String
 consumeWhile f = Parser p where
